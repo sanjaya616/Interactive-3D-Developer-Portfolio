@@ -179,8 +179,9 @@ export class CameraRig {
       _rayDir.divideScalar(totalLen);
       let clampedLen = totalLen;
 
-      // Check building & tunnel AABBs
+      // Check building & tunnel AABBs (skip thin trees & low bridge railings)
       for (const c of this.colliders) {
+        if (c.ignoreCamera) continue;
         // Quick radial skip for distant colliders
         const dx = c.x - anchor.x;
         const dz = c.z - anchor.z;

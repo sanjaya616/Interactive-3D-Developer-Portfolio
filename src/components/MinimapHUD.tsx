@@ -35,10 +35,9 @@ export const MinimapHUD: React.FC<MinimapHUDProps> = ({
       }}
       aria-label="Open expanded world map [M]"
       title="Click to expand World Map (M)"
-      className="pointer-events-auto group hidden md:flex flex-col bg-[#FFF9F0]/95 border-2 border-[#26211E] rounded-2xl p-2 shadow-[0_4px_0_#26211E] hover:bg-[#F5E9D4] active:translate-y-0.5 transition-colors cursor-pointer"
+      className="pointer-events-auto group hidden md:flex flex-col ui-hud-panel rounded-2xl p-2 hover:bg-[#F5E9D4] active:translate-y-0.5 transition-colors cursor-pointer"
     >
-      <div className="relative w-36 h-36 rounded-xl overflow-hidden border border-[#D9C3A3] bg-[#EED6AF]">
-        {/* Crisp North Cardinal Badge */}
+      <div className="relative w-36 h-36 rounded-xl overflow-hidden border border-[#CBB18D] bg-[#EED6AF]">
         <span
           aria-hidden="true"
           className="absolute top-1 left-1/2 -translate-x-1/2 z-10 px-1.5 py-0.2 rounded bg-[#26211E] text-[#FFF9F0] text-[8px] font-extrabold leading-tight"
@@ -47,10 +46,12 @@ export const MinimapHUD: React.FC<MinimapHUDProps> = ({
         </span>
 
         <svg viewBox="-100 -100 200 200" className="w-full h-full block">
+          {/* Lookout Hill & Emerald Lagoon & South Cove */}
           <circle cx="0" cy="-72" r="20" fill="#B5C78E" opacity="0.65" />
           <rect x="16" y="-30" width="58" height="16" rx="5" fill="#21968B" opacity="0.82" />
           <circle cx="-18" cy="66" r="12.5" fill="#21968B" opacity="0.82" />
 
+          {/* Road network */}
           <circle cx="0" cy="0" r="34" fill="none" stroke="#4B4440" strokeWidth="4.5" opacity="0.72" />
           <circle cx="-66" cy="18" r="18" fill="none" stroke="#4B4440" strokeWidth="4" opacity="0.72" />
           <circle cx="0" cy="0" r="12" fill="#FFF9F0" stroke="#EC6D2C" strokeWidth="2.5" />
@@ -76,7 +77,17 @@ export const MinimapHUD: React.FC<MinimapHUDProps> = ({
             strokeDasharray="4 4"
           />
 
-          <rect x="37" y="-32" width="6" height="20" rx="1.5" fill="#8B5A3C" stroke="#26211E" strokeWidth="1" />
+          {/* Main Lagoon Bridge, Curved Ring Viaduct, South Cove Footbridge, West Tunnel & East Jetty */}
+          <rect x="36.5" y="-32.5" width="7" height="21" rx="1.5" fill="#8B5A3C" stroke="#26211E" strokeWidth="1" />
+          <path
+            d="M 16.03 -29.98 A 34 34 0 0 1 31.32 -13.24"
+            fill="none"
+            stroke="#B98A5E"
+            strokeWidth="5.4"
+            strokeLinecap="round"
+          />
+          <rect x="-29.5" y="60.1" width="23" height="3.8" rx="1.2" fill="#8B5A3C" stroke="#26211E" strokeWidth="0.9" />
+          <rect x="68" y="-23.8" width="8" height="3.6" rx="1" fill="#8B5A3C" stroke="#26211E" strokeWidth="0.8" />
           <rect x="-46" y="-12" width="8" height="16" rx="2" fill="#B98A5E" stroke="#26211E" strokeWidth="1" />
 
           {WORLD_COLLECTIBLES.map((c) => {

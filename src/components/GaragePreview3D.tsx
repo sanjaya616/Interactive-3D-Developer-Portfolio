@@ -295,42 +295,40 @@ export const GaragePreview3D: React.FC<GaragePreview3DProps> = ({ config }) => {
 
   return (
     <div className="space-y-3">
-      <div className="relative rounded-2xl border-2 border-[#26211E] overflow-hidden bg-[#F5E9D4] h-64 sm:h-72 shadow-[0_4px_0_#26211E]">
+      <div className="relative ui-card-featured overflow-hidden bg-[#F5E9D4] h-64 sm:h-72">
         <div
           ref={mountRef}
           data-testid="garage-3d-canvas"
           className="w-full h-full cursor-grab active:cursor-grabbing"
           aria-label="Interactive 3D vehicle customization turntable"
         />
-        <div className="pointer-events-none absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-[#26211E] text-[#FFF9F0] text-[11px] font-extrabold tracking-wide">
+        <div className="pointer-events-none absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-[#26211E]/90 text-[#FFF9F0] text-[11px] font-extrabold tracking-wide">
           DRAG TO ROTATE 3D VIEW
         </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        {(Object.keys(CAMERA_PRESETS) as CameraAnglePreset[]).map((key) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => handleSelectPreset(key)}
-            className={`px-3 py-1.5 rounded-lg border-2 border-[#26211E] text-xs font-extrabold cursor-pointer transition-colors duration-150 ${
-              activePreset === key
-                ? 'bg-[#26211E] text-[#FFF9F0]'
-                : 'bg-[#FFF9F0] text-[#26211E] hover:bg-[#E6D3B5]'
-            }`}
-          >
-            {CAMERA_PRESETS[key].label}
-          </button>
-        ))}
         <button
           type="button"
           onClick={() => handleSelectPreset('three-quarter')}
           aria-label="Reset camera angle"
-          className="ml-auto px-2.5 py-1.5 rounded-lg border-2 border-[#26211E] bg-[#FFF9F0] text-[#26211E] hover:bg-[#E6D3B5] transition-colors duration-150 text-xs font-extrabold inline-flex items-center gap-1 cursor-pointer"
+          className="ui-hud-panel ui-btn absolute top-2.5 right-2.5 px-2.5 py-1 text-[11px] text-[#26211E] hover:bg-[#F5E9D4]"
         >
-          <RotateCcw className="w-3.5 h-3.5" />
+          <RotateCcw className="w-3 h-3" />
           <span>Reset</span>
         </button>
+      </div>
+
+      <div className="ui-segmented w-full grid grid-cols-2 sm:grid-cols-4">
+        {(Object.keys(CAMERA_PRESETS) as CameraAnglePreset[]).map((key) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={activePreset === key}
+            onClick={() => handleSelectPreset(key)}
+            className="ui-tab text-center"
+          >
+            {CAMERA_PRESETS[key].label}
+          </button>
+        ))}
       </div>
     </div>
   );

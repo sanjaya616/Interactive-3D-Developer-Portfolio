@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Camera, Download, Eye, EyeOff, ZoomIn, ZoomOut, X } from 'lucide-react';
+import { SettingsSlider } from './ui/SettingsSlider';
 
 interface PhotoModeOverlayProps {
   onZoom: (delta: number) => void;
@@ -41,7 +42,7 @@ export const PhotoModeOverlay: React.FC<PhotoModeOverlayProps> = ({
         <button
           type="button"
           onClick={() => setHideHud(false)}
-          className="px-4 py-2 rounded-xl bg-[#26211E]/90 text-[#FFF9F0] border-2 border-[#FFF9F0] text-xs font-extrabold flex items-center gap-2 cursor-pointer"
+          className="ui-hud-panel-dark ui-btn px-4 py-2 text-xs"
         >
           <Eye className="w-4 h-4" />
           <span>Show Photo HUD</span>
@@ -55,12 +56,12 @@ export const PhotoModeOverlay: React.FC<PhotoModeOverlayProps> = ({
       data-testid="photo-mode-overlay"
       className="fixed inset-0 z-30 pointer-events-none flex flex-col justify-between p-4 sm:p-6"
     >
-      {/* Subtle viewfinder corner brackets */}
-      <div className="pointer-events-none fixed inset-6 border border-[#FFF9F0]/25 rounded-lg" aria-hidden="true" />
+      {/* Viewfinder frame guide */}
+      <div className="pointer-events-none fixed inset-6 border border-[#FFF9F0]/30 rounded-xl" aria-hidden="true" />
 
       {/* Top Bar */}
       <div className="relative flex items-start justify-between gap-3">
-        <div className="pointer-events-auto bg-[#FFF9F0]/95 border-2 border-[#26211E] rounded-2xl px-4 py-2.5 shadow-[0_4px_0_#26211E]">
+        <div className="pointer-events-auto ui-hud-panel rounded-2xl px-4 py-2.5">
           <div className="flex items-center gap-2 text-xs font-extrabold text-[#EC6D2C]">
             <Camera className="w-4 h-4" />
             <span>PHOTO MODE · PAUSED</span>
@@ -74,7 +75,7 @@ export const PhotoModeOverlay: React.FC<PhotoModeOverlayProps> = ({
           <button
             type="button"
             onClick={() => setHideHud(true)}
-            className="px-3.5 py-2 rounded-xl bg-[#FFF9F0]/95 border-2 border-[#26211E] shadow-[0_3px_0_#26211E] text-xs font-extrabold text-[#26211E] flex items-center gap-1.5 hover:bg-[#F5E9D4] transition-colors cursor-pointer"
+            className="ui-hud-panel ui-btn px-3.5 py-2 text-xs text-[#26211E] hover:bg-[#F5E9D4]"
           >
             <EyeOff className="w-4 h-4" />
             <span>Hide HUD</span>
@@ -82,7 +83,7 @@ export const PhotoModeOverlay: React.FC<PhotoModeOverlayProps> = ({
           <button
             type="button"
             onClick={onExit}
-            className="px-3.5 py-2 rounded-xl bg-[#26211E] border-2 border-[#26211E] shadow-[0_3px_0_#61564E] text-xs font-extrabold text-[#FFF9F0] flex items-center gap-1.5 hover:bg-[#3A322D] transition-colors cursor-pointer"
+            className="ui-btn ui-btn-dark px-3.5 py-2 text-xs shadow-[0_3px_0_#61564E]"
           >
             <X className="w-4 h-4" />
             <span>Exit [P]</span>
@@ -92,14 +93,14 @@ export const PhotoModeOverlay: React.FC<PhotoModeOverlayProps> = ({
 
       {/* Bottom Camera Controls & Screenshot Preview */}
       <div className="relative flex flex-wrap items-end justify-between gap-4">
-        <div className="pointer-events-auto bg-[#FFF9F0]/95 border-2 border-[#26211E] rounded-2xl p-4 shadow-[0_4px_0_#26211E] flex flex-wrap items-center gap-4">
+        <div className="pointer-events-auto ui-hud-panel rounded-2xl p-4 flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-2">
             <span className="text-xs font-extrabold text-[#26211E]">ZOOM</span>
             <button
               type="button"
               aria-label="Zoom In"
               onClick={() => onZoom(-1.8)}
-              className="w-8 h-8 rounded-lg bg-[#F5E9D4] border border-[#26211E] flex items-center justify-center hover:bg-[#E6D3B5] cursor-pointer"
+              className="ui-btn ui-btn-secondary w-8 h-8 p-0"
             >
               <ZoomIn className="w-4 h-4" />
             </button>
@@ -107,32 +108,31 @@ export const PhotoModeOverlay: React.FC<PhotoModeOverlayProps> = ({
               type="button"
               aria-label="Zoom Out"
               onClick={() => onZoom(1.8)}
-              className="w-8 h-8 rounded-lg bg-[#F5E9D4] border border-[#26211E] flex items-center justify-center hover:bg-[#E6D3B5] cursor-pointer"
+              className="ui-btn ui-btn-secondary w-8 h-8 p-0"
             >
               <ZoomOut className="w-4 h-4" />
             </button>
           </div>
 
-          <label className="flex items-center gap-2.5 text-xs font-extrabold text-[#26211E]">
-            <span className="tabular-nums">FOV ({fov}°)</span>
-            <input
-              type="range"
+          <div className="w-40">
+            <SettingsSlider
+              label="Field of View"
+              value={fov}
               min={26}
               max={85}
-              value={fov}
-              onChange={(e) => {
-                const next = Number(e.target.value);
+              unit="°"
+              accent="orange"
+              onChange={(next) => {
                 setFov(next);
                 onChangeFov(next);
               }}
-              className="w-28 accent-[#EC6D2C] cursor-pointer"
             />
-          </label>
+          </div>
 
           <button
             type="button"
             onClick={handleCapture}
-            className="px-4 py-2 rounded-xl bg-[#EC6D2C] text-[#FFF9F0] border-2 border-[#26211E] shadow-[0_3px_0_#26211E] text-xs font-extrabold flex items-center gap-2 hover:bg-[#CC5318] transition-colors cursor-pointer"
+            className="ui-btn ui-btn-primary px-4 py-2.5 text-xs"
           >
             <Download className="w-4 h-4" />
             <span>Capture Photo</span>
@@ -140,7 +140,7 @@ export const PhotoModeOverlay: React.FC<PhotoModeOverlayProps> = ({
         </div>
 
         {(snapshotUrl || captureError) && (
-          <div className="pointer-events-auto bg-[#26211E] text-[#FFF9F0] border-2 border-[#EC6D2C] rounded-2xl p-3 max-w-xs shadow-lg">
+          <div className="pointer-events-auto ui-hud-panel-dark border-[#EC6D2C] rounded-2xl p-3 max-w-xs">
             {captureError ? (
               <p className="text-xs font-bold text-[#E65448]">{captureError}</p>
             ) : (

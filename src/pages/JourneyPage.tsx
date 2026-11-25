@@ -40,7 +40,7 @@ export const JourneyPage: React.FC = () => {
       subtitle="Education & Practice · 5 Verified Milestones (Dates Displayed Only Where Available)"
     >
       {/* Mountain-Inspired Crest Header Graphic */}
-      <div className="mb-10 bg-[#F5E9D4] border-2 border-[#26211E] rounded-2xl overflow-hidden shadow-[0_6px_0_#26211E]">
+      <div className="mb-10 ui-card-featured bg-[#F5E9D4]! overflow-hidden">
         <div className="px-6 pt-5 pb-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-xs font-extrabold text-[#5E915E] tracking-wider">
             <Mountain className="w-4 h-4" />
@@ -54,7 +54,7 @@ export const JourneyPage: React.FC = () => {
         <svg
           viewBox="0 0 800 130"
           preserveAspectRatio="none"
-          className="w-full h-24 sm:h-32 block border-t-2 border-[#26211E]"
+          className="w-full h-24 sm:h-32 block border-t border-[#CBB18D]"
           role="img"
           aria-label="Mountain elevation trail linking five career and education milestones"
         >
@@ -106,7 +106,6 @@ export const JourneyPage: React.FC = () => {
 
       {/* Vertical Mountain Trail Timeline */}
       <div ref={timelineRef} className="relative pl-6 sm:pl-10 space-y-6">
-        {/* Continuous vertical ridge path */}
         <div
           aria-hidden="true"
           className="absolute left-3 sm:left-5 top-4 bottom-4 w-1 bg-[#26211E] rounded-full"
@@ -117,7 +116,6 @@ export const JourneyPage: React.FC = () => {
           const hasExplicitDate = item.period !== 'Completed';
           return (
             <div key={item.id} className="journey-node relative">
-              {/* Progress Trail Waypoint Dot */}
               <button
                 type="button"
                 onClick={() => setActiveId(item.id)}
@@ -133,10 +131,10 @@ export const JourneyPage: React.FC = () => {
 
               <article
                 onClick={() => setActiveId(item.id)}
-                className={`rounded-2xl p-6 border-2 border-[#26211E] transition-all duration-150 cursor-pointer ${
+                className={`p-6 cursor-pointer ${
                   isHighlighted
-                    ? 'bg-[#FFF9F0] shadow-[0_6px_0_#26211E]'
-                    : 'bg-[#F5E9D4]/55 shadow-[0_3px_0_#26211E] hover:bg-[#FFF9F0]'
+                    ? 'ui-card-featured'
+                    : 'ui-card-interactive bg-[#F5E9D4]/55!'
                 }`}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-extrabold">

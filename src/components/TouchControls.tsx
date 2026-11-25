@@ -79,9 +79,9 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
   return (
     <div
       data-testid="touch-controls"
-      className="fixed inset-x-0 bottom-3 z-20 px-3 sm:px-5 flex items-end justify-between pointer-events-none select-none touch-none"
+      className="fixed inset-x-0 bottom-3 sm:bottom-4 z-20 px-3 sm:px-6 flex items-end justify-between gap-2 pointer-events-none select-none touch-none"
     >
-      {/* Left: Interact button (when near landmark or ready) + Steer Left / Right */}
+      {/* Left: Landmark Interact Pill + Steering Pad */}
       <div className="flex flex-col items-start gap-2 pointer-events-auto touch-none">
         <button
           type="button"
@@ -95,15 +95,15 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
             e.stopPropagation();
             if (nearestLandmark) onInteract();
           }}
-          className={`h-11 px-3 rounded-xl border-2 border-[#26211E] text-xs font-extrabold flex items-center gap-1.5 touch-none transition-colors ${
+          className={`h-11 px-3.5 rounded-xl border-[1.5px] border-[#26211E] text-xs font-extrabold flex items-center gap-1.5 touch-none transition-colors ${
             nearestLandmark
               ? 'bg-[#EC6D2C] text-[#FFF9F0] shadow-[0_3px_0_#26211E] active:translate-y-0.5 cursor-pointer'
-              : 'bg-[#FFF9F0]/80 text-[#61564E] opacity-75 cursor-default'
+              : 'bg-[#FFF9F0]/88 text-[#61564E] opacity-75 cursor-default'
           }`}
         >
           <Hand className="w-4 h-4 shrink-0" />
-          <span className="truncate max-w-[100px]">
-            {nearestLandmark ? nearestLandmark.zoneLabel : 'Interact'}
+          <span className="truncate max-w-[118px]">
+            {nearestLandmark ? `Open ${nearestLandmark.zoneLabel}` : 'Nearby: None'}
           </span>
         </button>
 
@@ -113,7 +113,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
             data-testid="touch-steer-left"
             aria-label="Steer Left"
             {...bindHold('left', () => onChange({ steer: 1 }), () => onChange({ steer: 0 }))}
-            className={`w-[52px] h-[52px] sm:w-14 sm:h-14 rounded-2xl bg-[#FFF9F0]/95 border-2 border-[#26211E] shadow-[0_3px_0_#26211E] flex items-center justify-center text-[#26211E] touch-none cursor-pointer ${activeCls('left')}`}
+            className={`w-[54px] h-[54px] sm:w-16 sm:h-16 rounded-2xl bg-[#FFF9F0]/95 border-[1.5px] border-[#26211E] shadow-[0_3px_0_#26211E] flex items-center justify-center text-[#26211E] touch-none cursor-pointer ${activeCls('left')}`}
           >
             <ArrowLeft className="w-6 h-6" />
           </button>
@@ -122,15 +122,15 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
             data-testid="touch-steer-right"
             aria-label="Steer Right"
             {...bindHold('right', () => onChange({ steer: -1 }), () => onChange({ steer: 0 }))}
-            className={`w-[52px] h-[52px] sm:w-14 sm:h-14 rounded-2xl bg-[#FFF9F0]/95 border-2 border-[#26211E] shadow-[0_3px_0_#26211E] flex items-center justify-center text-[#26211E] touch-none cursor-pointer ${activeCls('right')}`}
+            className={`w-[54px] h-[54px] sm:w-16 sm:h-16 rounded-2xl bg-[#FFF9F0]/95 border-[1.5px] border-[#26211E] shadow-[0_3px_0_#26211E] flex items-center justify-center text-[#26211E] touch-none cursor-pointer ${activeCls('right')}`}
           >
             <ArrowRight className="w-6 h-6" />
           </button>
         </div>
       </div>
 
-      {/* Right: Compact Utility Row (DRF/JMP/Boost) above Pedals (BRK/REV/GAS) */}
-      <div className="flex flex-col items-end gap-1.5 pointer-events-auto touch-none">
+      {/* Right: Drift/Jump/Boost Row above Ergonomic Pedals */}
+      <div className="flex flex-col items-end gap-2 pointer-events-auto touch-none">
         <div className="flex items-center gap-1.5 touch-none">
           <button
             type="button"
@@ -141,7 +141,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
               () => onChange({ handbrake: true }),
               () => onChange({ handbrake: false }),
             )}
-            className={`w-11 h-9 rounded-xl bg-[#26211E]/95 border-2 border-[#26211E] shadow-[0_2px_0_#61564E] text-[10px] font-extrabold text-[#FFF9F0] touch-none cursor-pointer ${activeCls('drift')}`}
+            className={`h-9 px-3 rounded-xl bg-[#26211E]/95 border-[1.5px] border-[#26211E] shadow-[0_2px_0_#61564E] text-[10px] font-extrabold tracking-wider text-[#FFF9F0] touch-none cursor-pointer ${activeCls('drift')}`}
           >
             DRF
           </button>
@@ -165,7 +165,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
               setPressed('jump', false);
             }}
             onPointerCancel={() => setPressed('jump', false)}
-            className={`w-11 h-9 rounded-xl bg-[#F5E9D4]/95 border-2 border-[#26211E] shadow-[0_2px_0_#26211E] text-[10px] font-extrabold text-[#26211E] touch-none cursor-pointer ${activeCls('jump')}`}
+            className={`h-9 px-3 rounded-xl bg-[#F5E9D4]/95 border-[1.5px] border-[#26211E] shadow-[0_2px_0_#26211E] text-[10px] font-extrabold tracking-wider text-[#26211E] touch-none cursor-pointer ${activeCls('jump')}`}
           >
             JMP
           </button>
@@ -178,9 +178,10 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
               () => onChange({ boost: true, throttle: 1 }),
               () => onChange({ boost: false, throttle: 0 }),
             )}
-            className={`w-12 h-9 rounded-xl bg-[#21968B]/95 border-2 border-[#26211E] shadow-[0_2px_0_#26211E] flex items-center justify-center gap-1 text-[#FFF9F0] touch-none cursor-pointer ${activeCls('boost')}`}
+            className={`h-9 px-3 rounded-xl bg-[#21968B]/95 border-[1.5px] border-[#26211E] shadow-[0_2px_0_#26211E] flex items-center justify-center gap-1 text-[10px] font-extrabold tracking-wider text-[#FFF9F0] touch-none cursor-pointer ${activeCls('boost')}`}
           >
-            <Zap className="w-4 h-4" />
+            <Zap className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">BST</span>
           </button>
         </div>
 
@@ -194,7 +195,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
               () => onChange({ brake: true }),
               () => onChange({ brake: false }),
             )}
-            className={`w-12 h-13 sm:w-14 sm:h-14 rounded-2xl bg-[#FFF9F0]/95 border-2 border-[#26211E] shadow-[0_3px_0_#26211E] flex flex-col items-center justify-center text-[#E65448] touch-none cursor-pointer ${activeCls('brake')}`}
+            className={`w-12 h-13 sm:w-14 sm:h-14 rounded-2xl bg-[#FFF9F0]/95 border-[1.5px] border-[#26211E] shadow-[0_3px_0_#26211E] flex flex-col items-center justify-center text-[#E65448] touch-none cursor-pointer ${activeCls('brake')}`}
           >
             <OctagonX className="w-5 h-5" />
             <span className="text-[9px] font-extrabold leading-none mt-0.5">BRK</span>
@@ -209,10 +210,10 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
               () => onChange({ throttle: -1 }),
               () => onChange({ throttle: 0 }),
             )}
-            className={`w-12 h-13 sm:w-14 sm:h-14 rounded-2xl bg-[#E65448]/95 border-2 border-[#26211E] shadow-[0_3px_0_#26211E] flex flex-col items-center justify-center text-[#FFF9F0] touch-none cursor-pointer ${activeCls('reverse')}`}
+            className={`w-12 h-13 sm:w-14 sm:h-14 rounded-2xl bg-[#E65448]/95 border-[1.5px] border-[#26211E] shadow-[0_3px_0_#26211E] flex flex-col items-center justify-center text-[#FFF9F0] touch-none cursor-pointer ${activeCls('reverse')}`}
           >
             <ArrowDown className="w-5 h-5" />
-            <span className="text-[9px] font-extrabold leading-none">REV</span>
+            <span className="text-[9px] font-extrabold leading-none mt-0.5">REV</span>
           </button>
 
           <button
@@ -224,10 +225,10 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
               () => onChange({ throttle: 1 }),
               () => onChange({ throttle: 0 }),
             )}
-            className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-[#EC6D2C]/95 border-2 border-[#26211E] shadow-[0_3px_0_#26211E] flex flex-col items-center justify-center text-[#FFF9F0] touch-none cursor-pointer ${activeCls('accel')}`}
+            className={`w-15 h-15 sm:w-17 sm:h-17 rounded-2xl bg-[#EC6D2C]/95 border-[1.5px] border-[#26211E] shadow-[0_3px_0_#26211E] flex flex-col items-center justify-center text-[#FFF9F0] touch-none cursor-pointer ${activeCls('accel')}`}
           >
             <ArrowUp className="w-6 h-6" />
-            <span className="text-[9px] font-extrabold leading-none">GAS</span>
+            <span className="text-[9px] font-extrabold leading-none mt-0.5">GAS</span>
           </button>
         </div>
       </div>

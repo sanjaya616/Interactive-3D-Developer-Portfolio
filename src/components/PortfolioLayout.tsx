@@ -52,14 +52,14 @@ export const PortfolioLayout: React.FC<PortfolioLayoutProps> = ({
       </a>
 
       {/* Shared Top Navigation */}
-      <header className="sticky top-0 z-30 bg-[#FFF9F0]/96 border-b-2 border-[#26211E]">
+      <header className="sticky top-0 z-30 bg-[#FFF9F0]/96 border-b border-[#D9C3A3] shadow-[0_1px_6px_rgba(38,33,30,0.05)]">
         <div className="max-w-6xl mx-auto px-4 sm:px-8 h-16 flex items-center justify-between gap-2 sm:gap-5">
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
             <button
               type="button"
               onClick={() => setDrawerOpen(true)}
               aria-label="Open full route directory"
-              className="w-9 h-9 rounded-xl border-2 border-[#26211E] bg-[#F5E9D4] flex items-center justify-center hover:bg-[#E6D3B5] transition-colors cursor-pointer shrink-0"
+              className="ui-btn ui-btn-secondary w-9 h-9 p-0 shrink-0"
             >
               <Menu className="w-4 h-4" />
             </button>
@@ -93,7 +93,7 @@ export const PortfolioLayout: React.FC<PortfolioLayoutProps> = ({
           <Link
             to="/?autostart=1"
             aria-label="Return to 3D World"
-            className="inline-flex items-center gap-1.5 sm:gap-2 px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-[#EC6D2C] text-[#FFF9F0] border-2 border-[#26211E] shadow-[0_3px_0_#26211E] text-xs sm:text-sm font-extrabold hover:bg-[#CC5318] active:translate-y-0.5 transition-all whitespace-nowrap shrink-0"
+            className="ui-btn ui-btn-primary px-3.5 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm whitespace-nowrap shrink-0"
           >
             <Compass className="w-4 h-4 shrink-0" />
             <span className="sm:hidden">3D World</span>

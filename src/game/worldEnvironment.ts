@@ -3,7 +3,9 @@ import {
   BUG_HUNT_TARGETS,
   MEMORY_PADS,
   PADDOCK_CHECKPOINTS,
+  PORTFOLIO_PROJECTS,
   SECRET_LOCATIONS,
+  SKILL_CATEGORIES,
   SQL_CHALLENGE_GATES,
   TIME_TRIAL_CHECKPOINTS,
   TREASURE_CHESTS,
@@ -11,8 +13,10 @@ import {
   WORLD_LANDMARKS,
 } from '../data/portfolioData';
 import type { CollectibleKind, QualityLevel, WeatherMode, WindMode } from '../types/portfolio';
+import { createAtmosphereSystem } from './atmosphereSystem';
 import { computeBridgeSurfaceY, computeGroundHeight } from './physicsMath';
 import { createWorldProceduralTextures } from './proceduralTextures';
+import { buildBridgesAndRoadNetwork } from './bridgesAndRoads';
 import { createVegetationSystem } from './vegetationSystem';
 import { createWaterSystem } from './waterSystem';
 import { MOORED_BOAT_ANCHOR, WATER_BASE_Y } from './waterWaveMath';
@@ -24,6 +28,9 @@ export interface StaticBoxColliderDef {
   hx: number;
   hy: number;
   hz: number;
+  ry?: number;
+  ignoreCamera?: boolean;
+  friction?: number;
 }
 
 export interface DynamicPropDef {
@@ -52,17 +59,23 @@ export interface WorldBuildResult {
   staticColliders: StaticBoxColliderDef[];
   dynamicProps: DynamicPropDef[];
   collectibles: CollectibleItem[];
-  applyWeatherMode: (mode: WeatherMode) => void;
+  applyWeatherMode: (mode: WeatherMode, immediate?: boolean) => void;
   setSecurityGateOpen: (open: boolean) => void;
   setRfidCardCollected: (collected: boolean) => void;
   setDeliveryTarget: (landmarkId: string | null) => void;
+  setWaypointTarget: (landmarkId: string | null, colorHex?: string) => void;
+  triggerDiscoveryPulse: (x: number, z: number, colorHex?: string) => void;
   setSqlProgress: (nextGateIdx: number) => void;
   setPaddockCheckpoint: (nextIdx: number) => void;
   setTimeTrialProgress: (nextIdx: number | null) => void;
   setBugHuntState: (foundIds: string[]) => void;
   setMemoryPadHighlight: (padId: number | null) => void;
   setTreasureState: (foundIds: string[]) => void;
-  setPerformanceProfile: (quality: QualityLevel, reducedMotion: boolean) => void;
+  setPerformanceProfile: (
+    quality: QualityLevel,
+    reducedMotion: boolean,
+    isSoftwareGl?: boolean,
+  ) => void;
   setWindMode: (mode: WindMode) => void;
   updateEnvironment: (elapsed: number, dt: number) => void;
   dispose: () => void;
@@ -173,41 +186,6 @@ function createCheckeredTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-function createSkyDome(): {
-  mesh: THREE.Mesh;
-  geo: THREE.BufferGeometry;
-  mat: THREE.Material;
-} {
-  const geo = new THREE.SphereGeometry(245, 28, 18);
-  const pos = geo.attributes.position;
-  const colors = new Float32Array(pos.count * 3);
-  const topColor = new THREE.Color('#5BB7D4');
-  const midColor = new THREE.Color('#FCE6C2');
-  const botColor = new THREE.Color('#F3C290');
-  const temp = new THREE.Color();
-
-  for (let i = 0; i < pos.count; i++) {
-    const y = pos.getY(i);
-    const t = THREE.MathUtils.clamp((y + 22) / 205, 0, 1);
-    if (t < 0.34) {
-      temp.copy(botColor).lerp(midColor, t / 0.34);
-    } else {
-      temp.copy(midColor).lerp(topColor, (t - 0.34) / 0.66);
-    }
-    colors[i * 3] = temp.r;
-    colors[i * 3 + 1] = temp.g;
-    colors[i * 3 + 2] = temp.b;
-  }
-
-  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  const mat = new THREE.MeshBasicMaterial({
-    vertexColors: true,
-    side: THREE.BackSide,
-    fog: false,
-  });
-  return { mesh: new THREE.Mesh(geo, mat), geo, mat };
-}
-
 function createExtrudedProfile(
   points: [number, number][],
   depth: number,
@@ -263,7 +241,8 @@ function isNearRoadOrBuilding(x: number, z: number): boolean {
   if (Math.abs(x + 42) < 9.5 && z >= -36 && z <= 22) return true;
   if (Math.hypot(x + 66, z - 18) < 22.5) return true;
   if (x >= 14 && x <= 78 && z >= -33 && z <= -12) return true;
-  if (Math.hypot(x + 18, z - 66) < 13.8) return true;
+  if (Math.hypot(x + 18, z - 66) < 14.5) return true;
+  if (Math.abs(z - 62) < 3.6 && x >= -33 && x <= -3) return true;
   for (const lm of WORLD_LANDMARKS) {
     if (Math.hypot(x - lm.position.x, z - lm.position.z) < 13.2) return true;
   }
@@ -291,89 +270,36 @@ export function buildWorldEnvironment(
   let securityGateArm: THREE.Group | null = null;
   let securityGateOpen = false;
   let deliveryBeacon: THREE.Mesh | null = null;
+  let waypointBeacon: THREE.Group | null = null;
+  let waypointBeamMat: THREE.MeshBasicMaterial | null = null;
+  let waypointHalo: THREE.Mesh | null = null;
+  const discoveryPulses: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number }[] = [];
 
   const procTex = createWorldProceduralTextures(maxAnisotropy);
 
-  // Sky, Starfield & Atmospheric Fog
-  const fog = new THREE.FogExp2('#F6DAB4', 0.0044);
-  scene.background = new THREE.Color('#F6DAB4');
+  // Atmospheric Fog + Calibrated 3-Point Warm/Cool Lighting Rig
+  const fog = new THREE.FogExp2('#F6DBB8', 0.004);
+  scene.background = new THREE.Color('#F6DBB8');
   scene.fog = fog;
 
-  const sky = createSkyDome();
-  geometries.push(sky.geo);
-  materials.push(sky.mat);
-  scene.add(sky.mesh);
-
-  // Starfield dome for Night weather mode
-  const starCount = 400;
-  const starFieldPos = new Float32Array(starCount * 3);
-  for (let i = 0; i < starCount; i++) {
-    const theta = Math.random() * Math.PI * 2;
-    const phi = 0.06 + Math.random() * Math.PI * 0.44;
-    const r = 212;
-    starFieldPos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-    starFieldPos[i * 3 + 1] = r * Math.cos(phi) + 4;
-    starFieldPos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
-  }
-  const starFieldGeo = new THREE.BufferGeometry();
-  starFieldGeo.setAttribute('position', new THREE.BufferAttribute(starFieldPos, 3));
-  const starFieldMat = new THREE.PointsMaterial({
-    color: 0xfff9f0,
-    size: 2.3,
-    fog: false,
-    transparent: true,
-    opacity: 0.95,
-  });
-  geometries.push(starFieldGeo);
-  materials.push(starFieldMat);
-  const starDome = new THREE.Points(starFieldGeo, starFieldMat);
-  starDome.visible = false;
-  scene.add(starDome);
-
-  // Pooled Falling Rain Streaks
-  const rainCount = 240;
-  const rainGeo = new THREE.BoxGeometry(0.05, 1.35, 0.05);
-  const rainMat = new THREE.MeshBasicMaterial({
-    color: 0xc8ebff,
-    transparent: true,
-    opacity: 0.55,
-  });
-  geometries.push(rainGeo);
-  materials.push(rainMat);
-  const rainInst = new THREE.InstancedMesh(rainGeo, rainMat, rainCount);
-  rainInst.visible = false;
-  rainInst.frustumCulled = false;
-  const rainDrops: { x: number; y: number; z: number; speed: number }[] = [];
-  const rainDummy = new THREE.Object3D();
-  for (let i = 0; i < rainCount; i++) {
-    rainDrops.push({
-      x: (Math.random() - 0.5) * 140,
-      y: Math.random() * 34,
-      z: (Math.random() - 0.5) * 140,
-      speed: 26 + Math.random() * 12,
-    });
-  }
-  scene.add(rainInst);
-
-  // Calibrated 3-Point Warm/Cool Lighting Rig
-  const hemi = new THREE.HemisphereLight('#FFF3DC', '#9C734B', 0.68);
+  const hemi = new THREE.HemisphereLight('#FFF4DE', '#9C734B', 0.72);
   hemi.position.set(0, 75, 0);
   scene.add(hemi);
 
-  const sun = new THREE.DirectionalLight('#FFE4B8', 1.45);
+  const sun = new THREE.DirectionalLight('#FFE4B8', 1.48);
   sun.position.set(58, 76, 44);
   sun.castShadow = true;
-  sun.shadow.mapSize.width = 1024;
-  sun.shadow.mapSize.height = 1024;
-  sun.shadow.camera.near = 10;
-  sun.shadow.camera.far = 225;
-  const d = 94;
+  sun.shadow.mapSize.width = 2048;
+  sun.shadow.mapSize.height = 2048;
+  sun.shadow.camera.near = 12;
+  sun.shadow.camera.far = 215;
+  const d = 90;
   sun.shadow.camera.left = -d;
   sun.shadow.camera.right = d;
   sun.shadow.camera.top = d;
   sun.shadow.camera.bottom = -d;
-  sun.shadow.bias = -0.0005;
-  sun.shadow.normalBias = 0.025;
+  sun.shadow.bias = -0.00035;
+  sun.shadow.normalBias = 0.02;
   scene.add(sun);
 
   const coolFill = new THREE.DirectionalLight('#9CE4DF', 0.34);
@@ -382,7 +308,6 @@ export function buildWorldEnvironment(
 
   let currentWeather: WeatherMode = 'sunny';
   let currentWindMode: WindMode = 'auto';
-  let rainActive = false;
 
   // 1. Sculpted 280x280 Terrain Mesh with vertex color biomes + subtle wind-ripple bump
   const sandTex = createSandTexture();
@@ -464,278 +389,81 @@ export function buildWorldEnvironment(
   // 2. Stylized Coastal Water System (Emerald Lagoon & South Cove)
   const waterSystem = createWaterSystem(scene, geometries, materials);
 
-  // 3. Starting Plaza Medallion & Striped Asphalt Road Network
-  const roadMat = new THREE.MeshStandardMaterial({
-    map: procTex.asphaltAlbedo,
-    bumpMap: procTex.asphaltBump,
-    bumpScale: 0.04,
-    roughness: 0.84,
-    metalness: 0.05,
-  });
-  const solidRoadMat = new THREE.MeshStandardMaterial({
-    color: 0x4b4440,
-    bumpMap: procTex.asphaltBump,
-    bumpScale: 0.04,
-    roughness: 0.84,
-    metalness: 0.05,
-  });
-  const gravelMat = new THREE.MeshStandardMaterial({
-    color: 0x9b8266,
-    bumpMap: procTex.sandBump,
-    bumpScale: 0.12,
-    roughness: 0.94,
-  });
-  const plazaTopMat = new THREE.MeshStandardMaterial({
-    map: procTex.plazaMedallion,
-    roughness: 0.78,
-  });
-  const plazaRimMat = new THREE.MeshStandardMaterial({
-    color: 0xd9c29f,
-    roughness: 0.82,
-  });
+  // 3 & 4. Shared Architectural Materials, Road Network & Bridges
   const woodMat = new THREE.MeshStandardMaterial({
     map: procTex.woodPlankAlbedo,
-    roughness: 0.78,
+    bumpMap: procTex.woodPlankBump,
+    bumpScale: 0.07,
+    roughness: 0.86,
+    metalness: 0.02,
   });
-  const stoneMat = new THREE.MeshStandardMaterial({ color: 0xcab08d, roughness: 0.88 });
+  const stoneMat = new THREE.MeshStandardMaterial({
+    map: procTex.stoneMasonryAlbedo,
+    bumpMap: procTex.stoneMasonryBump,
+    bumpScale: 0.08,
+    color: 0xf4e4cb,
+    roughness: 0.89,
+  });
   const roofDarkMat = new THREE.MeshStandardMaterial({ color: 0x2f2926, roughness: 0.72 });
   const creamMat = new THREE.MeshStandardMaterial({ color: 0xfff5e4, roughness: 0.76 });
   const terracottaMat = new THREE.MeshStandardMaterial({ color: 0xec6d2c, roughness: 0.45 });
   const glassMat = new THREE.MeshPhysicalMaterial({
     color: 0x56b9c7,
     roughness: 0.1,
-    metalness: 0.18,
+    metalness: 0.14,
     clearcoat: 0.85,
+    transparent: true,
+    opacity: 0.44,
   });
-  materials.push(
-    roadMat,
-    solidRoadMat,
-    gravelMat,
-    plazaTopMat,
-    plazaRimMat,
-    woodMat,
-    stoneMat,
-    roofDarkMat,
-    creamMat,
-    terracottaMat,
-    glassMat,
-  );
-
-  const plazaBaseGeo = new THREE.CylinderGeometry(13.6, 14.2, 0.14, 48);
-  const plazaMedallionGeo = new THREE.CircleGeometry(13.1, 48);
-  plazaMedallionGeo.rotateX(-Math.PI / 2);
-  const innerRingRoadGeo = new THREE.RingGeometry(31.4, 36.6, 72);
-  innerRingRoadGeo.rotateX(-Math.PI / 2);
-  const innerRingLineGeo = new THREE.RingGeometry(33.9, 34.15, 72);
-  innerRingLineGeo.rotateX(-Math.PI / 2);
-  const stripeWhiteMat = new THREE.MeshBasicMaterial({ color: 0xf7efe2 });
-  const stripeAmberMat = new THREE.MeshBasicMaterial({ color: 0xffe4a8 });
-  materials.push(stripeWhiteMat, stripeAmberMat);
-  geometries.push(plazaBaseGeo, plazaMedallionGeo, innerRingRoadGeo, innerRingLineGeo);
-
-  const plazaMesh = new THREE.Mesh(plazaBaseGeo, plazaRimMat);
-  plazaMesh.position.set(0, 0.01, 0);
-  plazaMesh.receiveShadow = true;
-  const plazaTop = new THREE.Mesh(plazaMedallionGeo, plazaTopMat);
-  plazaTop.position.set(0, 0.085, 0);
-  plazaTop.receiveShadow = true;
-
-  const innerRingRoad = new THREE.Mesh(innerRingRoadGeo, solidRoadMat);
-  innerRingRoad.position.set(0, 0.025, 0);
-  innerRingRoad.receiveShadow = true;
-  const innerRingLine = new THREE.Mesh(innerRingLineGeo, stripeAmberMat);
-  innerRingLine.position.set(0, 0.035, 0);
-
-  const innerCurbOutGeo = new THREE.RingGeometry(36.5, 36.8, 72);
-  innerCurbOutGeo.rotateX(-Math.PI / 2);
-  const innerCurbInGeo = new THREE.RingGeometry(31.2, 31.5, 72);
-  innerCurbInGeo.rotateX(-Math.PI / 2);
-  geometries.push(innerCurbOutGeo, innerCurbInGeo);
-  const ringCurbOut = new THREE.Mesh(innerCurbOutGeo, stripeWhiteMat);
-  ringCurbOut.position.set(0, 0.032, 0);
-  const ringCurbIn = new THREE.Mesh(innerCurbInGeo, stripeWhiteMat);
-  ringCurbIn.position.set(0, 0.032, 0);
-
-  scene.add(plazaMesh, plazaTop, innerRingRoad, innerRingLine, ringCurbOut, ringCurbIn);
-
-  const unitRoadGeo = new THREE.PlaneGeometry(4.8, 1);
-  unitRoadGeo.rotateX(-Math.PI / 2);
-  geometries.push(unitRoadGeo);
-
-  const addFlatRoadSegment = (
-    x1: number,
-    z1: number,
-    x2: number,
-    z2: number,
-    width = 4.8,
-    mat: THREE.Material = roadMat,
-    yOffset = 0.03,
-  ) => {
-    const dx = x2 - x1;
-    const dz = z2 - z1;
-    const len = Math.hypot(dx, dz);
-    const angle = Math.atan2(dx, dz);
-    const seg = new THREE.Mesh(unitRoadGeo, mat);
-    seg.scale.set(width / 4.8, 1, len);
-    seg.position.set((x1 + x2) * 0.5, yOffset, (z1 + z2) * 0.5);
-    seg.rotation.y = angle;
-    seg.receiveShadow = true;
-    scene.add(seg);
-  };
-
-  // Spokes from Plaza to Inner Ring & All Destinations
-  addFlatRoadSegment(0, 0, 0, -37);
-  addFlatRoadSegment(0, 0, 0, 44);
-  addFlatRoadSegment(0, 0, -34, -32);
-  addFlatRoadSegment(-34, -2, -62, 16);
-  addFlatRoadSegment(-34, 24, -37, 44);
-  addFlatRoadSegment(33, 14, 60, 8);
-  addFlatRoadSegment(28, 22, 42, 44);
-  addFlatRoadSegment(40, -32, 36, -42);
-  addFlatRoadSegment(38, -44, 48, -70);
-  addFlatRoadSegment(31, 4, 40, -12);
-
-  // Paddock Oval Racing Circuit around (-66, 18) with Striped Curbs & Checkered Start Grid
-  const paddockRingGeo = new THREE.RingGeometry(15.4, 20.6, 56);
-  paddockRingGeo.rotateX(-Math.PI / 2);
-  const paddockCenterLineGeo = new THREE.RingGeometry(17.9, 18.12, 56);
-  paddockCenterLineGeo.rotateX(-Math.PI / 2);
-  const paddockStartStripGeo = new THREE.PlaneGeometry(5.1, 2.5);
-  paddockStartStripGeo.rotateX(-Math.PI / 2);
-  geometries.push(paddockRingGeo, paddockCenterLineGeo, paddockStartStripGeo);
-
-  const paddockRing = new THREE.Mesh(paddockRingGeo, solidRoadMat);
-  paddockRing.position.set(-66, 0.024, 18);
-  paddockRing.receiveShadow = true;
-  const paddockCenterLine = new THREE.Mesh(paddockCenterLineGeo, stripeAmberMat);
-  paddockCenterLine.position.set(-66, 0.032, 18);
-  const stripMat = new THREE.MeshStandardMaterial({ map: procTex.checkeredStrip, roughness: 0.7 });
-  materials.push(stripMat);
-  const startStrip = new THREE.Mesh(paddockStartStripGeo, stripMat);
-  startStrip.position.set(-66, 0.038, 0);
-  scene.add(paddockRing, paddockCenterLine, startStrip);
-
-  // Alternating Red & Cream Apex Curb Blocks on Paddock Hairpin
-  const curbBlockGeo = new THREE.BoxGeometry(0.9, 0.16, 1.3);
-  geometries.push(curbBlockGeo);
-  const curbRedMat = new THREE.MeshStandardMaterial({ color: 0xe65448, roughness: 0.65 });
-  materials.push(curbRedMat);
-  for (let i = 0; i < 16; i++) {
-    const ang = (i / 16) * Math.PI * 2;
-    const cx = -66 + Math.cos(ang) * 21.0;
-    const cz = 18 + Math.sin(ang) * 21.0;
-    const cb = new THREE.Mesh(curbBlockGeo, i % 2 === 0 ? curbRedMat : creamMat);
-    cb.position.set(cx, 0.08, cz);
-    cb.rotation.y = -ang;
-    cb.receiveShadow = true;
-    scene.add(cb);
-  }
-
-  // Lookout Hill Sloped Road Ribbon
-  const hillRoadGeo = new THREE.PlaneGeometry(5.6, 26, 4, 22);
-  hillRoadGeo.rotateX(-Math.PI / 2);
-  const hrPos = hillRoadGeo.attributes.position;
-  for (let i = 0; i < hrPos.count; i++) {
-    const lx = hrPos.getX(i);
-    const lz = hrPos.getZ(i) - 50;
-    hrPos.setY(i, computeGroundHeight(lx, lz) + 0.045);
-  }
-  hillRoadGeo.computeVertexNormals();
-  geometries.push(hillRoadGeo);
-  const hillRoad = new THREE.Mesh(hillRoadGeo, roadMat);
-  hillRoad.position.set(0, 0, -50);
-  hillRoad.receiveShadow = true;
-  scene.add(hillRoad);
-
-  // Hidden Pine Trail
-  const hiddenTrailPoints = [
-    { x: -34, z: -38 },
-    { x: -28, z: -50 },
-    { x: -22, z: -58 },
-    { x: -13, z: -66 },
-    { x: -6, z: -70 },
-  ];
-  for (let i = 0; i < hiddenTrailPoints.length - 1; i++) {
-    const a = hiddenTrailPoints[i];
-    const b = hiddenTrailPoints[i + 1];
-    const midY = (computeGroundHeight(a.x, a.z) + computeGroundHeight(b.x, b.z)) * 0.5 + 0.04;
-    addFlatRoadSegment(a.x, a.z, b.x, b.z, 3.0, gravelMat, midY);
-  }
-
-  // 4. Sculpted Emerald Lagoon Bridge + Waterfront Timber Jetty & Boat + Coastal Lighthouse
-  const bridgeGroup = new THREE.Group();
-  const deckGeo = new THREE.BoxGeometry(6.8, 0.36, 10.6);
-  const rampBridgeGeo = new THREE.BoxGeometry(6.8, 0.26, 5.4);
-  const railBeamGeo = new THREE.BoxGeometry(0.28, 0.22, 18.6);
-  const railPostGeo = new THREE.CylinderGeometry(0.14, 0.16, 1.15, 8);
-  const lampGlobeGeo = new THREE.SphereGeometry(0.24, 10, 8);
-  const pierGeo = new THREE.CylinderGeometry(0.46, 0.58, 2.5, 10);
-  geometries.push(deckGeo, rampBridgeGeo, railBeamGeo, railPostGeo, lampGlobeGeo, pierGeo);
-
-  const deckMesh = new THREE.Mesh(deckGeo, woodMat);
-  deckMesh.position.set(40, 0.78, -22);
-  deckMesh.castShadow = true;
-  deckMesh.receiveShadow = true;
-
-  const northRamp = new THREE.Mesh(rampBridgeGeo, woodMat);
-  northRamp.position.set(40, 0.42, -29.6);
-  northRamp.rotation.x = 0.17;
-  northRamp.receiveShadow = true;
-
-  const southRamp = new THREE.Mesh(rampBridgeGeo, woodMat);
-  southRamp.position.set(40, 0.42, -14.4);
-  southRamp.rotation.x = -0.17;
-  southRamp.receiveShadow = true;
-
-  for (const rx of [36.7, 43.3]) {
-    const topRail = new THREE.Mesh(railBeamGeo, terracottaMat);
-    topRail.position.set(rx, 1.48, -22);
-    topRail.castShadow = true;
-    const midRail = new THREE.Mesh(railBeamGeo, stoneMat);
-    midRail.position.set(rx, 1.05, -22);
-    bridgeGroup.add(topRail, midRail);
-  }
-
   const lanternMat = new THREE.MeshStandardMaterial({
     color: 0xfff3c4,
     emissive: 0xffb74d,
     emissiveIntensity: 1.0,
     roughness: 0.2,
   });
-  materials.push(lanternMat);
-
-  for (const pz of [-29, -25.5, -22, -18.5, -15]) {
-    for (const px of [36.7, 43.3]) {
-      const post = new THREE.Mesh(railPostGeo, stoneMat);
-      post.position.set(px, 1.35, pz);
-      post.castShadow = true;
-      bridgeGroup.add(post);
-      if (pz === -29 || pz === -22 || pz === -15) {
-        const globe = new THREE.Mesh(lampGlobeGeo, lanternMat);
-        globe.position.set(px, 2.02, pz);
-        bridgeGroup.add(globe);
-      }
-    }
-  }
-
-  for (const pz of [-26, -22, -18]) {
-    for (const px of [37.2, 42.8]) {
-      const pier = new THREE.Mesh(pierGeo, stoneMat);
-      pier.position.set(px, -0.35, pz);
-      bridgeGroup.add(pier);
-    }
-  }
-  bridgeGroup.add(deckMesh, northRamp, southRamp);
-  scene.add(bridgeGroup);
-
-  staticColliders.push(
-    { x: 36.5, y: 1.1, z: -22, hx: 0.35, hy: 1.0, hz: 9.2 },
-    { x: 43.5, y: 1.1, z: -22, hx: 0.35, hy: 1.0, hz: 9.2 },
+  const windowGlowMat = new THREE.MeshStandardMaterial({
+    color: 0xffe4a8,
+    emissive: 0xffb954,
+    emissiveIntensity: 0.12,
+    roughness: 0.22,
+    metalness: 0.08,
+  });
+  const coolScreenGlowMat = new THREE.MeshStandardMaterial({
+    color: 0x7ce8e4,
+    emissive: 0x3ad6cf,
+    emissiveIntensity: 0.16,
+    roughness: 0.18,
+    metalness: 0.15,
+  });
+  materials.push(
+    woodMat,
+    stoneMat,
+    roofDarkMat,
+    creamMat,
+    terracottaMat,
+    glassMat,
+    lanternMat,
+    windowGlowMat,
+    coolScreenGlowMat,
   );
 
-  // Waterfront Wooden Jetty & Bobbing Boat on East Lagoon (x: 56, z: -15)
-  const jettyDeckGeo = new THREE.BoxGeometry(2.6, 0.22, 6.4);
-  const jettyPilingGeo = new THREE.CylinderGeometry(0.14, 0.16, 1.9, 8);
+  const roadAndBridgeSys = buildBridgesAndRoadNetwork(
+    scene,
+    procTex,
+    geometries,
+    materials,
+    textures,
+    staticColliders,
+    {
+      lanternMat,
+      roofDarkMat,
+      creamMat,
+      terracottaMat,
+    },
+    isNearRoadOrBuilding,
+  );
+
+  // Bobbing Moored Boat beside East Lagoon Waterfront Jetty
   const hullGeo = createExtrudedProfile(
     [
       [-0.75, 0.35],
@@ -747,20 +475,7 @@ export function buildWorldEnvironment(
     0.05,
   );
   const cabinGeo = new THREE.BoxGeometry(0.82, 0.52, 0.96);
-  geometries.push(jettyDeckGeo, jettyPilingGeo, hullGeo, cabinGeo);
-
-  const jetty = new THREE.Mesh(jettyDeckGeo, woodMat);
-  jetty.position.set(56, 0.2, -16.5);
-  jetty.castShadow = true;
-  jetty.receiveShadow = true;
-  scene.add(jetty);
-  for (const jz of [-14.2, -16.5, -18.8]) {
-    for (const jx of [54.9, 57.1]) {
-      const piling = new THREE.Mesh(jettyPilingGeo, roofDarkMat);
-      piling.position.set(jx, -0.35, jz);
-      scene.add(piling);
-    }
-  }
+  geometries.push(hullGeo, cabinGeo);
 
   mooredBoat = new THREE.Group();
   const boatHull = new THREE.Mesh(hullGeo, creamMat);
@@ -814,16 +529,29 @@ export function buildWorldEnvironment(
   const lhBeamMat = new THREE.MeshBasicMaterial({
     color: 0xffe49c,
     transparent: true,
-    opacity: 0.16,
+    opacity: 0.14,
     depthWrite: false,
     side: THREE.DoubleSide,
   });
-  materials.push(lhBeamMat);
+  const lhCoreBeamGeo = new THREE.ConeGeometry(0.65, 11.2, 12, 1, true);
+  lhCoreBeamGeo.rotateX(Math.PI / 2);
+  lhCoreBeamGeo.translate(0, 0, 5.6);
+  const lhHaloGeo = new THREE.SphereGeometry(1.35, 12, 10);
+  geometries.push(lhCoreBeamGeo, lhHaloGeo);
+  const lhHaloMat = new THREE.MeshBasicMaterial({
+    color: 0xffe6a6,
+    transparent: true,
+    opacity: 0.14,
+    depthWrite: false,
+  });
+  materials.push(lhBeamMat, lhHaloMat);
   lighthouseBeam = new THREE.Group();
   lighthouseBeam.position.set(0, 8.25, 0);
-  lighthouseBeam.add(new THREE.Mesh(lhBeamGeo, lhBeamMat));
+  lighthouseBeam.add(new THREE.Mesh(lhBeamGeo, lhBeamMat), new THREE.Mesh(lhCoreBeamGeo, lhBeamMat));
+  const lhHalo = new THREE.Mesh(lhHaloGeo, lhHaloMat);
+  lhHalo.position.set(0, 8.25, 0);
 
-  lhGroup.add(lh1, lh2, lh3, lhGal, lhLamp, lhRoof, lighthouseBeam);
+  lhGroup.add(lh1, lh2, lh3, lhGal, lhLamp, lhRoof, lhHalo, lighthouseBeam);
   scene.add(lhGroup);
   staticColliders.push({ x: 73, y: lhGy + 3.5, z: -26, hx: 2.0, hy: 4.0, hz: 2.0 });
 
@@ -972,6 +700,24 @@ export function buildWorldEnvironment(
     scene.add(indicator);
     indicatorDiamonds.push({ mesh: indicator, baseY: baseGroundY + 3.25, phase: idx * 0.9 });
 
+    // Zone Entrance Gateway Bollards (flanking outside 9.6m approach apron)
+    const bollardGeo = new THREE.CylinderGeometry(0.22, 0.28, 1.85, 8);
+    const bollardCapGeo = new THREE.SphereGeometry(0.26, 8, 8);
+    geometries.push(bollardGeo, bollardCapGeo);
+    const cosY = Math.cos(yaw);
+    const sinY = Math.sin(yaw);
+    for (const sideX of [-5.2, 5.2]) {
+      const bx = lm.position.x + sideX * cosY + 2.8 * sinY;
+      const bz = lm.position.z - sideX * sinY + 2.8 * cosY;
+      const bGy = computeGroundHeight(bx, bz);
+      const post = new THREE.Mesh(bollardGeo, roofDarkMat);
+      post.position.set(bx, bGy + 0.92, bz);
+      post.castShadow = true;
+      const bCap = new THREE.Mesh(bollardCapGeo, padMat);
+      bCap.position.set(bx, bGy + 1.92, bz);
+      scene.add(post, bCap);
+    }
+
     const grp = new THREE.Group();
     grp.position.set(buildX, baseGroundY, buildZ);
     grp.rotation.y = yaw;
@@ -1017,12 +763,17 @@ export function buildWorldEnvironment(
       roof.castShadow = true;
 
       const win = new THREE.Mesh(studioWinGeo, glassMat);
-      win.position.set(0, 2.15, 2.22);
+      win.scale.set(1, 1, 0.5);
+      win.position.set(0, 2.15, 2.3);
 
-      const skylight = new THREE.Mesh(skylightGeo, accentMat);
+      const innerWinGlow = new THREE.Mesh(studioWinGeo, windowGlowMat);
+      innerWinGlow.scale.set(0.94, 0.86, 0.32);
+      innerWinGlow.position.set(0, 2.15, 2.23);
+
+      const skylight = new THREE.Mesh(skylightGeo, windowGlowMat);
       skylight.position.set(0, 4.85, -0.2);
 
-      grp.add(hall, roof, win, skylight);
+      grp.add(hall, roof, innerWinGlow, win, skylight);
       for (let lx = -2.2; lx <= 2.2; lx += 1.1) {
         const louver = new THREE.Mesh(louverGeo, creamMat);
         louver.position.set(lx, 2.15, 2.45);
@@ -1068,20 +819,50 @@ export function buildWorldEnvironment(
       const k1 = new THREE.Mesh(kioskGeo, roofDarkMat);
       k1.position.set(-1.9, 1.35, 2.6);
       k1.rotation.y = 0.25;
-      const k1Scr = new THREE.Mesh(screenGeo, glassMat);
+      const k1Scr = new THREE.Mesh(screenGeo, coolScreenGlowMat);
       k1Scr.position.set(-1.9, 1.55, 2.8);
       k1Scr.rotation.y = 0.25;
 
       const k2 = new THREE.Mesh(kioskGeo, roofDarkMat);
       k2.position.set(1.9, 1.35, 2.6);
       k2.rotation.y = -0.25;
-      const k2Scr = new THREE.Mesh(screenGeo, accentMat);
+      const k2Scr = new THREE.Mesh(screenGeo, windowGlowMat);
       k2Scr.position.set(1.9, 1.55, 2.8);
       k2Scr.rotation.y = -0.25;
 
-      grp.add(hall, canopy, k1, k1Scr, k2, k2Scr);
+      const pavWinGeo = new THREE.BoxGeometry(3.8, 1.55, 0.12);
+      geometries.push(pavWinGeo);
+      const pavWin = new THREE.Mesh(pavWinGeo, windowGlowMat);
+      pavWin.position.set(0, 2.1, 2.12);
+
+      // 11 Project Exhibition Totem Boards arranged around the Pavilion courtyard
+      const totemPostGeo = new THREE.CylinderGeometry(0.08, 0.1, 1.7, 6);
+      const totemBoardGeo = new THREE.BoxGeometry(1.05, 0.78, 0.1);
+      geometries.push(totemPostGeo, totemBoardGeo);
+      PORTFOLIO_PROJECTS.forEach((proj, pIdx) => {
+        const tAngle = -Math.PI * 0.44 + (pIdx / Math.max(1, PORTFOLIO_PROJECTS.length - 1)) * Math.PI * 0.88;
+        const arcR = 5.45;
+        const tx = Math.sin(tAngle) * arcR;
+        const tz = 1.15 - Math.cos(tAngle) * 1.45;
+        const tMat = new THREE.MeshStandardMaterial({
+          color: new THREE.Color(proj.accentColor),
+          emissive: new THREE.Color(proj.accentColor),
+          emissiveIntensity: 0.28,
+          roughness: 0.35,
+        });
+        materials.push(tMat);
+        const post = new THREE.Mesh(totemPostGeo, roofDarkMat);
+        post.position.set(tx, 0.95, tz);
+        const board = new THREE.Mesh(totemBoardGeo, tMat);
+        board.position.set(tx, 1.82, tz);
+        board.rotation.y = -tAngle * 0.65;
+        board.castShadow = true;
+        grp.add(post, board);
+      });
+
+      grp.add(hall, canopy, pavWin, k1, k1Scr, k2, k2Scr);
     } else if (lm.id === 'workshop') {
-      // Chamfered Hexagonal Tech Lab + External Rib Buttresses + 3 Kinetic Overhead Sculptures
+      // Chamfered Hexagonal Tech Lab + External Rib Buttresses + 3 Kinetic Overhead Sculptures + 5 Category Lab Pods
       const hexGeo = new THREE.CylinderGeometry(3.45, 3.75, 3.7, 6);
       const domeGeo = new THREE.SphereGeometry(2.5, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2);
       const ribGeo = new THREE.BoxGeometry(0.32, 3.9, 0.58);
@@ -1090,7 +871,9 @@ export function buildWorldEnvironment(
       const sym1Geo = new THREE.TorusKnotGeometry(0.44, 0.14, 40, 8);
       const sym2Geo = new THREE.OctahedronGeometry(0.58, 0);
       const sym3Geo = new THREE.DodecahedronGeometry(0.52, 0);
-      geometries.push(hexGeo, domeGeo, ribGeo, ringCapGeo, sym1Geo, sym2Geo, sym3Geo);
+      const podPedGeo = new THREE.CylinderGeometry(0.45, 0.56, 1.1, 6);
+      const podOrbGeo = new THREE.OctahedronGeometry(0.34, 0);
+      geometries.push(hexGeo, domeGeo, ribGeo, ringCapGeo, sym1Geo, sym2Geo, sym3Geo, podPedGeo, podOrbGeo);
 
       const hex = new THREE.Mesh(hexGeo, creamMat);
       hex.position.y = 2.3;
@@ -1109,9 +892,28 @@ export function buildWorldEnvironment(
         grp.add(rib);
       }
 
+      const catColors = ['#EC6D2C', '#21968B', '#E65448', '#5E915E', '#D99B26'];
+      SKILL_CATEGORIES.forEach((_cat, cIdx) => {
+        const cAng = -Math.PI * 0.42 + (cIdx / Math.max(1, SKILL_CATEGORIES.length - 1)) * Math.PI * 0.84;
+        const px = Math.sin(cAng) * 5.05;
+        const pz = 2.6 + Math.cos(cAng) * 1.15;
+        const podMat = new THREE.MeshStandardMaterial({
+          color: new THREE.Color(catColors[cIdx % catColors.length]),
+          emissive: new THREE.Color(catColors[cIdx % catColors.length]),
+          emissiveIntensity: 0.45,
+          roughness: 0.3,
+        });
+        materials.push(podMat);
+        const ped = new THREE.Mesh(podPedGeo, roofDarkMat);
+        ped.position.set(px, 0.72, pz);
+        const capOrb = new THREE.Mesh(podOrbGeo, podMat);
+        capOrb.position.set(px, 1.65, pz);
+        grp.add(ped, capOrb);
+      });
+
       const s1 = new THREE.Mesh(sym1Geo, accentMat);
       s1.position.set(-2.4, 5.8, 0);
-      const s2 = new THREE.Mesh(sym2Geo, glassMat);
+      const s2 = new THREE.Mesh(sym2Geo, coolScreenGlowMat);
       s2.position.set(0, 6.8, 0);
       const s3 = new THREE.Mesh(sym3Geo, accentMat);
       s3.position.set(2.4, 5.8, 0);
@@ -1218,14 +1020,19 @@ export function buildWorldEnvironment(
       const banner = new THREE.Mesh(bannerGeo, checkMat);
       banner.position.set(0, 4.55, 5.2);
 
-      // Decorative stacked racing tires outside pit wall
+      // Pit garage illuminated transom strip + decorative stacked racing tires
+      const pitWinGeo = new THREE.BoxGeometry(4.8, 0.72, 0.14);
+      geometries.push(pitWinGeo);
+      const pitWin = new THREE.Mesh(pitWinGeo, windowGlowMat);
+      pitWin.position.set(0, 2.65, 2.22);
+
       for (let t = 0; t < 3; t++) {
         const tire = new THREE.Mesh(tireStackGeo, t % 2 === 0 ? roofDarkMat : creamMat);
         tire.position.set(-4.3, 0.62 + t * 0.32, 2.4);
         tire.castShadow = true;
         grp.add(tire);
       }
-      grp.add(bay, roof, gpL, gpR, banner);
+      grp.add(bay, roof, pitWin, gpL, gpR, banner);
     } else if (lm.id === 'delivery') {
       // Courier Warehouse + Sawtooth Loading Canopy + Sculpted Delivery Van
       const whGeo = new THREE.BoxGeometry(6.8, 3.7, 4.6);
@@ -1292,8 +1099,13 @@ export function buildWorldEnvironment(
         vw.position.set(wx, 0.26, wz);
         vanGroup.add(vw);
       }
+      const whWinGeo = new THREE.BoxGeometry(3.6, 0.62, 0.14);
+      geometries.push(whWinGeo);
+      const whWin = new THREE.Mesh(whWinGeo, windowGlowMat);
+      whWin.position.set(0, 3.28, 2.31);
+
       vanGroup.add(vanBody);
-      grp.add(wh, sawRoof, door, p1, p2, vanGroup);
+      grp.add(wh, sawRoof, door, whWin, p1, p2, vanGroup);
     } else if (lm.id === 'query-valley') {
       // Relational Archive Colonnade: Twin Server Monoliths + Arch Data Conduits + Tiered DB Core
       const serverGeo = new THREE.BoxGeometry(1.65, 4.9, 1.75);
@@ -1356,7 +1168,12 @@ export function buildWorldEnvironment(
         securityGateArm.add(st);
       }
 
-      grp.add(booth, cap, ped, securityGateArm);
+      const boothWinGeo = new THREE.BoxGeometry(3.1, 1.05, 0.14);
+      geometries.push(boothWinGeo);
+      const boothWin = new THREE.Mesh(boothWinGeo, windowGlowMat);
+      boothWin.position.set(0, 2.2, 1.91);
+
+      grp.add(booth, cap, boothWin, ped, securityGateArm);
     }
 
     scene.add(grp);
@@ -1406,55 +1223,48 @@ export function buildWorldEnvironment(
   deliveryBeacon.visible = false;
   scene.add(deliveryBeacon);
 
-  // 8. Directional Road Signs & SQL Valley Signs
-  const signDefs = [
-    { x: -12, z: -14, label: 'THE STUDIO', arrow: '↖', rotY: -0.6 },
-    { x: 14, z: -14, label: 'BRIDGE / SQL', arrow: '↗', rotY: 0.6 },
-    { x: 0, z: -36, label: 'LOOKOUT HILL', arrow: '↑', rotY: 0 },
-    { x: 42, z: -60, label: 'SELECT * FROM', arrow: 'VALLEY', rotY: -0.3 },
-    { x: 53, z: -66, label: 'JOIN SKILLS', arrow: 'ON ID', rotY: 0.4 },
-    { x: -45, z: 8, label: 'THE PADDOCK', arrow: '↙', rotY: -0.9 },
-  ];
-  const rPostGeo = new THREE.CylinderGeometry(0.1, 0.1, 2.2, 8);
-  const rBoardGeo = new THREE.BoxGeometry(2.6, 1.2, 0.14);
-  geometries.push(rPostGeo, rBoardGeo);
+  // Objective / Guided Tour Sky Beacon & Ground Ring
+  waypointBeacon = new THREE.Group();
+  const wpBeamGeo = new THREE.CylinderGeometry(0.55, 1.15, 22, 16, 1, true);
+  const wpHaloGeo = new THREE.TorusGeometry(2.6, 0.18, 8, 28);
+  wpHaloGeo.rotateX(Math.PI / 2);
+  geometries.push(wpBeamGeo, wpHaloGeo);
+  waypointBeamMat = new THREE.MeshBasicMaterial({
+    color: 0xec6d2c,
+    transparent: true,
+    opacity: 0.34,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  materials.push(waypointBeamMat);
+  const wpBeamMesh = new THREE.Mesh(wpBeamGeo, waypointBeamMat);
+  wpBeamMesh.position.y = 11;
+  waypointHalo = new THREE.Mesh(wpHaloGeo, waypointBeamMat);
+  waypointHalo.position.y = 0.25;
+  waypointBeacon.add(wpBeamMesh, waypointHalo);
+  waypointBeacon.visible = false;
+  scene.add(waypointBeacon);
 
-  for (const sd of signDefs) {
-    const gy = computeGroundHeight(sd.x, sd.z);
-    const rTex = createRoadSignTexture(sd.label, sd.arrow);
-    textures.push(rTex);
-    const rMat = new THREE.MeshBasicMaterial({ map: rTex, toneMapped: false });
-    materials.push(rMat);
-    const post = new THREE.Mesh(rPostGeo, roofDarkMat);
-    post.position.set(sd.x, gy + 1.1, sd.z);
-    const board = new THREE.Mesh(rBoardGeo, rMat);
-    board.position.set(sd.x, gy + 2.3, sd.z);
-    board.rotation.y = sd.rotY;
-    scene.add(post, board);
+  // Pooled Discovery Arrival Ring Pulses (3 rings)
+  const pulseRingGeo = new THREE.RingGeometry(2.4, 3.2, 32);
+  pulseRingGeo.rotateX(-Math.PI / 2);
+  geometries.push(pulseRingGeo);
+  for (let i = 0; i < 3; i++) {
+    const pMat = new THREE.MeshBasicMaterial({
+      color: 0xec6d2c,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    materials.push(pMat);
+    const pMesh = new THREE.Mesh(pulseRingGeo, pMat);
+    pMesh.visible = false;
+    scene.add(pMesh);
+    discoveryPulses.push({ mesh: pMesh, mat: pMat, life: 0 });
   }
 
-  // 9. Street Lights along Ring Road & Plaza
-  const lampPoleGeo = new THREE.CylinderGeometry(0.09, 0.14, 4.3, 8);
-  const lampArmGeo = new THREE.BoxGeometry(0.8, 0.1, 0.1);
-  const lampHeadGeo = new THREE.SphereGeometry(0.3, 10, 8);
-  geometries.push(lampPoleGeo, lampArmGeo, lampHeadGeo);
-
-  for (let i = 0; i < 16; i++) {
-    const a = (i / 16) * Math.PI * 2 + 0.18;
-    const lx = Math.cos(a) * 38;
-    const lz = Math.sin(a) * 38;
-    if (isNearRoadOrBuilding(lx, lz)) continue;
-    const gy = computeGroundHeight(lx, lz);
-    const pole = new THREE.Mesh(lampPoleGeo, roofDarkMat);
-    pole.position.set(lx, gy + 2.15, lz);
-    pole.castShadow = true;
-    const arm = new THREE.Mesh(lampArmGeo, roofDarkMat);
-    arm.position.set(lx - Math.cos(a) * 0.35, gy + 4.25, lz - Math.sin(a) * 0.35);
-    arm.rotation.y = -a;
-    const bulb = new THREE.Mesh(lampHeadGeo, lanternMat);
-    bulb.position.set(lx - Math.cos(a) * 0.65, gy + 4.18, lz - Math.sin(a) * 0.65);
-    scene.add(pole, arm, bulb);
-  }
+  // 8 & 9. Signs & Street Lanterns built inside buildBridgesAndRoadNetwork
 
   // 10. Multi-Species Sculpted Instanced Vegetation & Coherent Shader Wind System
   const vegetationSystem = createVegetationSystem(scene, procTex, geometries, materials);
@@ -1495,33 +1305,7 @@ export function buildWorldEnvironment(
   rockInst.computeBoundingSphere();
   scene.add(rockInst);
 
-  // 13. Moving Low-Poly Clouds + Soaring Seabirds
-  const cloudGroup = new THREE.Group();
-  const cloudGeo = new THREE.DodecahedronGeometry(3.4, 1);
-  geometries.push(cloudGeo);
-  const cloudMat = new THREE.MeshBasicMaterial({
-    color: 0xfffaf2,
-    transparent: true,
-    opacity: 0.88,
-  });
-  materials.push(cloudMat);
-  const clouds: { grp: THREE.Group; speed: number; baseZ: number }[] = [];
-  for (let i = 0; i < 12; i++) {
-    const cg = new THREE.Group();
-    for (let p = 0; p < 3; p++) {
-      const puff = new THREE.Mesh(cloudGeo, cloudMat);
-      puff.position.set((p - 1) * 3.1, p === 1 ? 0.9 : 0, (p % 2) * 0.8);
-      puff.scale.set(p === 1 ? 1.2 : 0.85, 0.68, 0.9);
-      cg.add(puff);
-    }
-    const cx = -110 + (i / 12) * 220;
-    const cz = -90 + ((i * 43) % 180);
-    cg.position.set(cx, 32 + (i % 3) * 5, cz);
-    cloudGroup.add(cg);
-    clouds.push({ grp: cg, speed: 1.4 + (i % 4) * 0.45, baseZ: cz });
-  }
-  scene.add(cloudGroup);
-
+  // 13. Soaring Coastal Seabirds (Clouds & Sky managed by atmosphereSystem)
   const wingLGeo = new THREE.BoxGeometry(0.95, 0.06, 0.28);
   wingLGeo.translate(-0.45, 0, 0);
   const wingRGeo = new THREE.BoxGeometry(0.95, 0.06, 0.28);
@@ -1872,76 +1656,40 @@ export function buildWorldEnvironment(
   const motes = new THREE.Points(moteGeo, moteMat);
   scene.add(motes);
 
-  const skyMeshMat = sky.mat as THREE.MeshBasicMaterial;
+  let latestMotionTime = 0;
 
-  const applyWeatherMode = (mode: WeatherMode) => {
+  const atmosphereSystem = createAtmosphereSystem(
+    scene,
+    fog,
+    hemi,
+    sun,
+    coolFill,
+    geometries,
+    materials,
+    {
+      onWetnessUpdate: (wetness) => {
+        terrainMat.roughness = THREE.MathUtils.lerp(0.9, 0.36, wetness);
+        terrainMat.envMapIntensity = THREE.MathUtils.lerp(0.38, 1.15, wetness);
+        const wetTint = THREE.MathUtils.lerp(1.0, 0.82, wetness);
+        terrainMat.color.setRGB(wetTint, wetTint, Math.min(1, wetTint + 0.03 * wetness));
+        roadAndBridgeSys.setWetness(wetness);
+      },
+      onNightGlowUpdate: (nightGlow, lhOpacity) => {
+        const flicker = Math.sin(latestMotionTime * 2.2) * (0.06 + nightGlow * 0.14);
+        lanternMat.emissiveIntensity = 0.72 + nightGlow * 1.45 + flicker;
+        lampGlowMat.emissiveIntensity = 0.85 + nightGlow * 1.25;
+        windowGlowMat.emissiveIntensity = 0.1 + nightGlow * 1.55;
+        coolScreenGlowMat.emissiveIntensity = 0.18 + nightGlow * 1.25;
+        lhBeamMat.opacity = lhOpacity;
+        lhHaloMat.opacity = 0.1 + nightGlow * 0.34;
+        roadAndBridgeSys.updateLighting(currentWeather, latestMotionTime, nightGlow);
+      },
+    },
+  );
+
+  const applyWeatherMode = (mode: WeatherMode, immediate = false) => {
     currentWeather = mode;
-    rainActive = mode === 'rain';
-    rainInst.visible = rainActive;
-    starDome.visible = mode === 'night';
-
-    if (mode === 'sunset') {
-      scene.background = new THREE.Color('#E89A6C');
-      fog.color.set('#E89A6C');
-      fog.density = 0.0058;
-      skyMeshMat.color.set('#F2B28A');
-      hemi.color.set('#FFD0A8');
-      hemi.groundColor.set('#7C5238');
-      hemi.intensity = 0.55;
-      sun.color.set('#FF9A52');
-      sun.intensity = 1.22;
-      sun.position.set(-65, 28, -50);
-      coolFill.intensity = 0.28;
-    } else if (mode === 'night') {
-      scene.background = new THREE.Color('#18223C');
-      fog.color.set('#18223C');
-      fog.density = 0.0058;
-      skyMeshMat.color.set('#223052');
-      hemi.color.set('#5C78B4');
-      hemi.groundColor.set('#222736');
-      hemi.intensity = 0.38;
-      sun.color.set('#9DB8FF');
-      sun.intensity = 0.52;
-      sun.position.set(-40, 64, 30);
-      coolFill.intensity = 0.22;
-    } else if (mode === 'rain') {
-      scene.background = new THREE.Color('#7C91A1');
-      fog.color.set('#7C91A1');
-      fog.density = 0.009;
-      skyMeshMat.color.set('#8DA2B2');
-      hemi.color.set('#C5D5E2');
-      hemi.groundColor.set('#5A666E');
-      hemi.intensity = 0.54;
-      sun.color.set('#D2E2EE');
-      sun.intensity = 0.76;
-      sun.position.set(35, 60, 25);
-      coolFill.intensity = 0.25;
-    } else if (mode === 'fog') {
-      scene.background = new THREE.Color('#DFD5C2');
-      fog.color.set('#DFD5C2');
-      fog.density = 0.017;
-      skyMeshMat.color.set('#EDE4D4');
-      hemi.color.set('#FFF4E0');
-      hemi.groundColor.set('#9A856D');
-      hemi.intensity = 0.64;
-      sun.color.set('#FFE8C4');
-      sun.intensity = 0.88;
-      sun.position.set(45, 58, 30);
-      coolFill.intensity = 0.25;
-    } else {
-      scene.background = new THREE.Color('#F6DAB4');
-      fog.color.set('#F6DAB4');
-      fog.density = 0.0044;
-      skyMeshMat.color.set('#FFFFFF');
-      hemi.color.set('#FFF3DC');
-      hemi.groundColor.set('#9C734B');
-      hemi.intensity = 0.68;
-      sun.color.set('#FFE4B8');
-      sun.intensity = 1.45;
-      sun.position.set(58, 76, 44);
-      coolFill.intensity = 0.34;
-    }
-
+    atmosphereSystem.applyWeatherMode(mode, immediate);
     waterSystem.applyWeather(mode);
     vegetationSystem.setWindProfile(mode, currentWindMode);
   };
@@ -1973,6 +1721,35 @@ export function buildWorldEnvironment(
     const gy = target.position.y ?? computeGroundHeight(target.position.x, target.position.z);
     deliveryBeacon.position.set(target.position.x, gy + 7, target.position.z);
     deliveryBeacon.visible = true;
+  };
+
+  const setWaypointTarget = (landmarkId: string | null, colorHex?: string) => {
+    if (!waypointBeacon || !waypointBeamMat) return;
+    if (!landmarkId) {
+      waypointBeacon.visible = false;
+      return;
+    }
+    const target = WORLD_LANDMARKS.find((l) => l.id === landmarkId);
+    if (!target) {
+      waypointBeacon.visible = false;
+      return;
+    }
+    const gy = target.position.y ?? computeGroundHeight(target.position.x, target.position.z);
+    waypointBeamMat.color.set(colorHex || target.color);
+    waypointBeacon.position.set(target.position.x, gy, target.position.z);
+    waypointBeacon.visible = true;
+  };
+
+  const triggerDiscoveryPulse = (x: number, z: number, colorHex = '#EC6D2C') => {
+    const slot = discoveryPulses.find((p) => p.life <= 0) || discoveryPulses[0];
+    if (!slot) return;
+    const gy = computeGroundHeight(x, z);
+    slot.mat.color.set(colorHex);
+    slot.mat.opacity = 0.88;
+    slot.mesh.position.set(x, gy + 0.16, z);
+    slot.mesh.scale.setScalar(1);
+    slot.mesh.visible = true;
+    slot.life = 1.0;
   };
 
   const setSqlProgress = (nextGateIdx: number) => {
@@ -2040,16 +1817,23 @@ export function buildWorldEnvironment(
   let lowQualityProfile = false;
   let reducedMotionProfile = false;
 
-  const setPerformanceProfile = (quality: QualityLevel, reducedMotion: boolean) => {
+  const setPerformanceProfile = (
+    quality: QualityLevel,
+    reducedMotion: boolean,
+    isSoftwareGl = false,
+  ) => {
     lowQualityProfile = quality === 'low';
     reducedMotionProfile = reducedMotion;
     motes.visible = !lowQualityProfile && !reducedMotionProfile;
     waterSystem.applyQuality(quality);
     vegetationSystem.setPerformanceProfile(quality, reducedMotion);
+    atmosphereSystem.setQualityProfile(quality, reducedMotion, isSoftwareGl);
   };
 
   const updateEnvironment = (elapsed: number, dt: number) => {
     const motionTime = reducedMotionProfile ? 0 : elapsed;
+    latestMotionTime = motionTime;
+    atmosphereSystem.update(motionTime, dt);
     vegetationSystem.update(motionTime, dt);
 
     for (const fs of floatingSigns) {
@@ -2087,9 +1871,6 @@ export function buildWorldEnvironment(
       bird.grp.rotation.y = -ang + Math.PI / 2;
     }
 
-    const lanternBase = currentWeather === 'night' ? 1.85 : currentWeather === 'sunset' ? 1.35 : 0.85;
-    lanternMat.emissiveIntensity = lanternBase + Math.sin(motionTime * 2.2) * 0.22;
-
     if (securityGateArm) {
       const targetAngle = securityGateOpen ? Math.PI / 2.2 : 0;
       securityGateArm.rotation.z = THREE.MathUtils.damp(
@@ -2098,13 +1879,6 @@ export function buildWorldEnvironment(
         5,
         dt,
       );
-    }
-
-    if (!reducedMotionProfile) {
-      for (const c of clouds) {
-        c.grp.position.x += c.speed * dt;
-        if (c.grp.position.x > 125) c.grp.position.x = -125;
-      }
     }
 
     for (const col of collectibles) {
@@ -2148,22 +1922,24 @@ export function buildWorldEnvironment(
       deliveryBeacon.rotation.y = motionTime * 1.4;
     }
 
-    if (rainActive && !reducedMotionProfile) {
-      for (let i = 0; i < rainCount; i++) {
-        const drop = rainDrops[i];
-        drop.y -= drop.speed * dt;
-        drop.x -= 2.4 * dt;
-        if (drop.y < -1) {
-          drop.y = 32 + Math.random() * 6;
-          drop.x = (Math.random() - 0.5) * 140;
-          drop.z = (Math.random() - 0.5) * 140;
-        }
-        rainDummy.position.set(drop.x, drop.y, drop.z);
-        rainDummy.rotation.set(0, 0, -0.09);
-        rainDummy.updateMatrix();
-        rainInst.setMatrixAt(i, rainDummy.matrix);
+    if (waypointBeacon && waypointBeacon.visible) {
+      waypointBeacon.rotation.y = -motionTime * 1.1;
+      if (waypointHalo) {
+        const s = 1 + Math.sin(motionTime * 3.4) * 0.14;
+        waypointHalo.scale.set(s, s, 1);
       }
-      rainInst.instanceMatrix.needsUpdate = true;
+    }
+
+    for (const dp of discoveryPulses) {
+      if (dp.life > 0) {
+        dp.life = Math.max(0, dp.life - dt * 0.72);
+        const progress = 1 - dp.life;
+        dp.mesh.scale.setScalar(1 + progress * 3.6);
+        dp.mat.opacity = dp.life * 0.85;
+        if (dp.life <= 0) {
+          dp.mesh.visible = false;
+        }
+      }
     }
 
     motes.position.y = Math.sin(motionTime * 0.5) * 0.45;
@@ -2184,6 +1960,8 @@ export function buildWorldEnvironment(
     setSecurityGateOpen,
     setRfidCardCollected,
     setDeliveryTarget,
+    setWaypointTarget,
+    triggerDiscoveryPulse,
     setSqlProgress,
     setPaddockCheckpoint,
     setTimeTrialProgress,

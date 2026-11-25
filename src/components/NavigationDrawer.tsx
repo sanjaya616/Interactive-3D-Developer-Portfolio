@@ -45,12 +45,12 @@ export const NavigationDrawer: React.FC = () => {
   return (
     <div className="fixed inset-0 z-50 flex justify-start bg-[#26211E]/45">
       <div
-        className="w-full max-w-sm h-full bg-[#FFF9F0] border-r-2 border-[#26211E] flex flex-col justify-between overflow-y-auto p-6"
+        className="w-full max-w-sm h-full bg-[#FFF9F0] border-r-2 border-[#26211E] shadow-2xl flex flex-col justify-between overflow-y-auto p-6"
         role="dialog"
         aria-label="Portfolio Navigation"
       >
         <div>
-          <div className="flex items-center justify-between pb-4 border-b border-[#E6D3B5]">
+          <div className="flex items-center justify-between pb-4 border-b ui-divider">
             <div>
               <span className="font-display text-3xl font-bold text-[#26211E]">
                 SANJAYA&apos;S WORLD
@@ -63,14 +63,14 @@ export const NavigationDrawer: React.FC = () => {
               type="button"
               onClick={() => setDrawerOpen(false)}
               aria-label="Close navigation menu"
-              className="w-10 h-10 rounded-xl border-2 border-[#26211E] bg-[#F5E9D4] flex items-center justify-center text-[#26211E] hover:bg-[#E6D3B5] cursor-pointer"
+              className="ui-btn ui-btn-secondary w-10 h-10 p-0"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
           {/* Account & Cloud Save Card */}
-          <div className="mt-4 p-3.5 rounded-xl bg-[#F5E9D4]/75 border border-[#D9C3A3]">
+          <div className="mt-4 p-3.5 ui-card-sand">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
                 <Cloud
@@ -106,7 +106,7 @@ export const NavigationDrawer: React.FC = () => {
                   type="button"
                   disabled={authBusy}
                   onClick={() => void signOutAccount()}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#FFF9F0] border border-[#26211E] text-[11px] font-extrabold text-[#26211E] hover:bg-[#E6D3B5] cursor-pointer shrink-0"
+                  className="ui-btn ui-btn-outline px-2.5 py-1.5 text-[11px] shrink-0"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                   <span>Sign Out</span>
@@ -116,7 +116,7 @@ export const NavigationDrawer: React.FC = () => {
                   type="button"
                   disabled={authBusy}
                   onClick={() => void signInGoogle()}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#21968B] border border-[#26211E] text-[11px] font-extrabold text-[#FFF9F0] hover:opacity-90 cursor-pointer shrink-0"
+                  className="ui-btn ui-btn-accent px-2.5 py-1.5 text-[11px] shrink-0"
                 >
                   <LogIn className="w-3.5 h-3.5" />
                   <span>{authBusy ? '...' : 'Google'}</span>
@@ -136,12 +136,12 @@ export const NavigationDrawer: React.FC = () => {
                   value={draftName}
                   onChange={(e) => setDraftName(e.target.value)}
                   placeholder="Display name"
-                  className="flex-1 min-w-0 px-2.5 py-1 rounded-lg border border-[#26211E] bg-[#FFF9F0] text-xs font-bold text-[#26211E]"
+                  className="ui-input py-1.5 px-2.5 text-xs"
                 />
                 <button
                   type="submit"
                   aria-label="Save display name"
-                  className="px-2.5 py-1 rounded-lg bg-[#26211E] text-[#FFF9F0] text-[11px] font-extrabold hover:bg-[#EC6D2C] cursor-pointer inline-flex items-center gap-1"
+                  className="ui-btn ui-btn-dark px-2.5 py-1.5 text-[11px] shrink-0"
                 >
                   {nameSaved ? <Check className="w-3 h-3" /> : null}
                   <span>{nameSaved ? 'Saved' : 'Save'}</span>
@@ -158,7 +158,7 @@ export const NavigationDrawer: React.FC = () => {
             <button
               type="button"
               onClick={() => handleGo('/')}
-              className="mt-4 w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-[#EC6D2C] text-[#FFF9F0] border-2 border-[#26211E] text-sm font-extrabold shadow-[0_3px_0_#26211E] hover:bg-[#CC5318] cursor-pointer"
+              className="mt-4 w-full ui-btn ui-btn-primary px-4 py-3 text-sm"
             >
               <Compass className="w-4 h-4" />
               <span>Return to 3D World</span>
@@ -183,12 +183,19 @@ export const NavigationDrawer: React.FC = () => {
                           onClick={() => handleGo(item.path)}
                           className={`w-full text-left px-3.5 py-2.5 rounded-xl text-sm font-bold transition-colors cursor-pointer flex items-center justify-between ${
                             active
-                              ? 'bg-[#26211E] text-[#FFF9F0] border-l-4 border-[#EC6D2C]'
+                              ? 'bg-[#26211E] text-[#FFF9F0]'
                               : 'text-[#26211E] hover:bg-[#F5E9D4]'
                           }`}
                         >
-                          <span>{item.label}</span>
-                          <span className="text-xs opacity-60">{item.path}</span>
+                          <span className="flex items-center gap-2">
+                            {active && (
+                              <span className="w-2 h-2 rounded-full bg-[#EC6D2C] shrink-0" aria-hidden="true" />
+                            )}
+                            <span>{item.label}</span>
+                          </span>
+                          <span className={`text-xs ${active ? 'text-[#E6D3B5]' : 'text-[#61564E]/80'}`}>
+                            {item.path}
+                          </span>
                         </button>
                       );
                     })}
@@ -199,7 +206,7 @@ export const NavigationDrawer: React.FC = () => {
           </nav>
         </div>
 
-        <div className="pt-5 mt-6 border-t border-[#E6D3B5] text-xs font-semibold text-[#61564E]">
+        <div className="pt-5 mt-6 border-t ui-divider text-xs font-semibold text-[#61564E]">
           Tip: Drive up to any building in the 3D world and press Enter to jump right to its page.
         </div>
       </div>

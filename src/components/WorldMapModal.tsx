@@ -5,7 +5,9 @@ import {
   ExternalLink,
   Flag,
   HelpCircle,
+  MapPin,
   Navigation,
+  Route,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -16,6 +18,7 @@ import {
   WORLD_COLLECTIBLES,
   WORLD_LANDMARKS,
 } from '../data/portfolioData';
+import { computeDistanceAndBearing, TOUR_STOPS, type TourState } from '../game/guidedTour';
 import type { ActiveChallengeHud, WorldLandmark } from '../types/portfolio';
 
 interface WorldMapModalProps {
@@ -28,6 +31,9 @@ interface WorldMapModalProps {
   discoveredSecrets: string[];
   activeChallenge: ActiveChallengeHud;
   objectiveId: string | null;
+  tourState?: TourState;
+  onStartTour?: () => void;
+  onEndTour?: () => void;
   onSelectObjective: (id: string | null) => void;
   onClose: () => void;
   onDriveTo: (landmark: WorldLandmark) => void;
@@ -44,6 +50,9 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
   discoveredSecrets,
   activeChallenge,
   objectiveId,
+  tourState,
+  onStartTour,
+  onEndTour,
   onSelectObjective,
   onClose,
   onDriveTo,
@@ -72,18 +81,26 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
     WORLD_LANDMARKS.find((l) => l.id === highlightedId) || WORLD_LANDMARKS[0];
   const selectedVisited = discoveredIds.includes(selectedLandmark.id);
   const selectedIsObjective = objectiveId === selectedLandmark.id;
+  const selectedNav = computeDistanceAndBearing(
+    playerX,
+    playerZ,
+    selectedLandmark.position.x,
+    selectedLandmark.position.z,
+  );
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-[#26211E]/55 p-3 sm:p-5 overflow-y-auto">
       <div
-        className="animate-modal-pop w-full max-w-5xl max-h-[90dvh] overflow-y-auto bg-[#FFF9F0] border-2 border-[#26211E] rounded-2xl shadow-[0_8px_0_#26211E] my-auto"
+        className="animate-modal-pop ui-modal-panel w-full max-w-5xl max-h-[90dvh] overflow-y-auto my-auto"
         role="dialog"
         aria-label="World Map"
       >
         {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 sm:px-6 py-3.5 bg-[#F5E9D4] border-b-2 border-[#26211E]">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 sm:px-6 py-3.5 bg-[#F5E9D4] border-b border-[#D9C3A3]">
           <div className="flex items-center gap-2.5">
-            <Compass className="w-5 h-5 text-[#EC6D2C]" />
+            <div className="w-9 h-9 rounded-xl bg-[#FFF9F0] border border-[#CBB18D] flex items-center justify-center shrink-0">
+              <Compass className="w-5 h-5 text-[#EC6D2C]" />
+            </div>
             <div>
               <h2 className="font-display text-3xl sm:text-4xl font-bold text-[#26211E] leading-none">
                 SANJAYA&apos;S WORLD MAP
@@ -94,42 +111,39 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
+              aria-pressed={showCollectibles}
               onClick={() => setShowCollectibles((v) => !v)}
-              className={`px-2.5 py-1 rounded-lg border border-[#26211E] text-[11px] font-extrabold inline-flex items-center gap-1 cursor-pointer transition-colors ${
-                showCollectibles ? 'bg-[#21968B] text-[#FFF9F0]' : 'bg-[#FFF9F0] text-[#26211E]'
-              }`}
+              className="ui-filter-chip"
             >
-              <Sparkles className="w-3 h-3" />
+              <Sparkles className="w-3.5 h-3.5 text-[#21968B]" />
               <span>Items</span>
             </button>
             <button
               type="button"
+              aria-pressed={showCheckpoints}
               onClick={() => setShowCheckpoints((v) => !v)}
-              className={`px-2.5 py-1 rounded-lg border border-[#26211E] text-[11px] font-extrabold inline-flex items-center gap-1 cursor-pointer transition-colors ${
-                showCheckpoints ? 'bg-[#CC5318] text-[#FFF9F0]' : 'bg-[#FFF9F0] text-[#26211E]'
-              }`}
+              className="ui-filter-chip"
             >
-              <Flag className="w-3 h-3" />
+              <Flag className="w-3.5 h-3.5 text-[#EC6D2C]" />
               <span>Track &amp; Gates</span>
             </button>
             <button
               type="button"
+              aria-pressed={showSecrets}
               onClick={() => setShowSecrets((v) => !v)}
-              className={`px-2.5 py-1 rounded-lg border border-[#26211E] text-[11px] font-extrabold inline-flex items-center gap-1 cursor-pointer transition-colors ${
-                showSecrets ? 'bg-[#5E915E] text-[#FFF9F0]' : 'bg-[#FFF9F0] text-[#26211E]'
-              }`}
+              className="ui-filter-chip"
             >
-              <HelpCircle className="w-3 h-3" />
+              <HelpCircle className="w-3.5 h-3.5 text-[#5E915E]" />
               <span>Secrets</span>
             </button>
             <button
               type="button"
               onClick={onClose}
               aria-label="Close map"
-              className="w-9 h-9 rounded-xl border-2 border-[#26211E] bg-[#FFF9F0] flex items-center justify-center hover:bg-[#E6D3B5] cursor-pointer ml-1"
+              className="ui-btn ui-btn-outline w-9 h-9 p-0 ml-1"
             >
               <X className="w-4 h-4" />
             </button>
@@ -139,10 +153,10 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 p-4 sm:p-6">
           {/* Left: Interactive Map Canvas + Legend */}
           <div className="lg:col-span-7 flex flex-col gap-3">
-            <div className="relative aspect-square w-full max-h-[470px] rounded-2xl bg-[#EED4AA] border-2 border-[#26211E] overflow-hidden">
+            <div className="relative aspect-square w-full max-h-[470px] rounded-2xl bg-[#EED4AA] border-2 border-[#26211E] overflow-hidden shadow-inner">
               <div
                 aria-hidden="true"
-                className="pointer-events-none absolute top-2.5 right-2.5 z-20 w-7 h-7 rounded-full bg-[#FFF9F0]/90 border border-[#26211E] flex items-center justify-center text-[11px] font-extrabold text-[#26211E] shadow-xs"
+                className="pointer-events-none absolute top-2.5 right-2.5 z-20 w-7 h-7 rounded-full bg-[#26211E] flex items-center justify-center text-[11px] font-extrabold text-[#FFF9F0] shadow-xs"
               >
                 N
               </div>
@@ -174,6 +188,24 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
                   <line x1="38" y1="-44" x2="48" y2="-74" />
                 </g>
 
+                {/* Waypoint line from player to active objective */}
+                {objectiveId && (() => {
+                  const objLm = WORLD_LANDMARKS.find((l) => l.id === objectiveId);
+                  if (!objLm) return null;
+                  return (
+                    <line
+                      x1={playerX}
+                      y1={playerZ}
+                      x2={objLm.position.x}
+                      y2={objLm.position.z}
+                      stroke="#E65448"
+                      strokeWidth="1.8"
+                      strokeDasharray="3 3"
+                      opacity="0.75"
+                    />
+                  );
+                })()}
+
                 <polyline
                   points="-36,-34 -24,-56 0,-72"
                   fill="none"
@@ -182,7 +214,17 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
                   strokeDasharray="4 4"
                 />
 
-                <rect x="37" y="-32" width="6" height="20" rx="1.5" fill="#8B5A3C" stroke="#26211E" strokeWidth="1" />
+                {/* Bridges, Viaduct, Footbridge, Tunnel & Jetty matching physicsMath.ts */}
+                <rect x="36.5" y="-32.5" width="7" height="21" rx="1.5" fill="#8B5A3C" stroke="#26211E" strokeWidth="1" />
+                <path
+                  d="M 16.03 -29.98 A 34 34 0 0 1 31.32 -13.24"
+                  fill="none"
+                  stroke="#B98A5E"
+                  strokeWidth="5.4"
+                  strokeLinecap="round"
+                />
+                <rect x="-29.5" y="60.1" width="23" height="3.8" rx="1.2" fill="#8B5A3C" stroke="#26211E" strokeWidth="0.9" />
+                <rect x="68" y="-23.8" width="8" height="3.6" rx="1" fill="#8B5A3C" stroke="#26211E" strokeWidth="0.8" />
                 <rect x="-46" y="-12" width="8" height="16" rx="2" fill="#B98A5E" stroke="#26211E" strokeWidth="1" />
 
                 {/* Track & SQL Checkpoints */}
@@ -277,7 +319,7 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
                         <circle
                           r="12"
                           fill="#EC6D2C"
-                          fillOpacity="0.16"
+                          fillOpacity="0.18"
                           stroke="#26211E"
                           strokeWidth="2.2"
                         />
@@ -312,7 +354,7 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
                       top: `${toMapPct(lm.position.z)}%`,
                       backgroundColor: lm.color,
                     }}
-                    className={`absolute -translate-x-1/2 -translate-y-1/2 px-2 py-0.5 rounded-lg border-2 text-[10px] sm:text-[11px] font-extrabold text-[#FFF9F0] shadow-[0_2px_0_#26211E] transition-transform cursor-pointer whitespace-nowrap ${
+                    className={`absolute -translate-x-1/2 -translate-y-1/2 px-2 py-0.5 rounded-lg border-[1.5px] text-[10px] sm:text-[11px] font-extrabold text-[#FFF9F0] shadow-[0_2px_0_#26211E] transition-transform cursor-pointer whitespace-nowrap ${
                       isSelected
                         ? 'scale-110 z-20 border-[#26211E] ring-2 ring-[#FFF9F0]'
                         : 'z-10 border-[#26211E] hover:scale-105'
@@ -348,7 +390,7 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
             </div>
 
             {/* Map Legend + Active Challenge */}
-            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 rounded-xl bg-[#F5E9D4] border border-[#E6D3B5] text-xs font-bold text-[#26211E]">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 ui-card-sand text-xs font-bold text-[#26211E]">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="inline-flex items-center gap-1">
                   <span className="w-2.5 h-2.5 rounded-full bg-[#21968B] border border-[#26211E]" />
@@ -368,6 +410,10 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
                   </span>
                   <span>Secret Spots</span>
                 </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="w-3 h-1.5 rounded-xs bg-[#8B5A3C] border border-[#26211E]" />
+                  <span>Bridges &amp; Jetty</span>
+                </span>
               </div>
               {activeChallenge.id && (
                 <span className="text-[11px] font-extrabold text-[#EC6D2C]">
@@ -377,16 +423,61 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
             </div>
           </div>
 
-          {/* Right: Highlighted Destination Detail + Directory */}
+          {/* Right: Guided Tour Bar + Highlighted Destination Detail + Directory */}
           <div className="lg:col-span-5 flex flex-col gap-3">
-            <div
-              data-testid="map-highlighted-card"
-              className="p-4 rounded-xl bg-[#F5E9D4]/80 border border-[#D9C3A3]"
-            >
+            {onStartTour && tourState && (
+              <div className="p-3.5 rounded-xl bg-[#F5E9D4] border border-[#CBB18D] flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-extrabold text-[#21968B] flex items-center gap-1.5">
+                    <Route className="w-3.5 h-3.5" />
+                    <span>
+                      GUIDED PORTFOLIO TOUR · {tourState.visitedStopIds.length}/{TOUR_STOPS.length} STOPS
+                    </span>
+                  </div>
+                  <p className="text-[11px] font-semibold text-[#61564E] mt-0.5">
+                    {tourState.active
+                      ? 'Tour beacon active in 3D world — drive freely or follow highlighted stops.'
+                      : 'Optional 5-stop scenic tour through Studio, Pavilion, Workshop, Lookout & Signal House.'}
+                  </p>
+                </div>
+                {tourState.active && onEndTour ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onEndTour();
+                      onClose();
+                    }}
+                    className="ui-btn ui-btn-outline px-3 py-1.5 text-xs shrink-0"
+                  >
+                    End Tour
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onStartTour();
+                      onClose();
+                    }}
+                    className="ui-btn ui-btn-accent px-3 py-1.5 text-xs shrink-0"
+                  >
+                    {tourState.completed ? 'Replay Tour' : 'Start Guided Tour'}
+                  </button>
+                )}
+              </div>
+            )}
+
+            <div data-testid="map-highlighted-card" className="p-4 ui-card-featured">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <div className="text-[11px] font-extrabold text-[#61564E] tracking-wider">
-                    {selectedLandmark.category.toUpperCase()} · {selectedVisited ? 'VISITED' : 'UNVISITED'}
+                  <div className="text-[11px] font-extrabold text-[#61564E] tracking-wider flex items-center gap-1.5">
+                    <span>{selectedLandmark.category.toUpperCase()}</span>
+                    <span>·</span>
+                    <span>{selectedVisited ? 'VISITED' : 'UNVISITED'}</span>
+                    <span>·</span>
+                    <span className="text-[#EC6D2C] inline-flex items-center gap-0.5 tabular-nums">
+                      <MapPin className="w-3 h-3" />
+                      {selectedNav.distanceMeters}m {selectedNav.bearingLabel}
+                    </span>
                   </div>
                   <h3 className="font-display text-3xl sm:text-4xl font-bold text-[#26211E] leading-none mt-0.5">
                     {selectedLandmark.title}
@@ -396,7 +487,7 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
                   </div>
                 </div>
                 <span
-                  className="w-4 h-4 rounded-md border-2 border-[#26211E] shrink-0 mt-1"
+                  className="w-4 h-4 rounded-md border-[1.5px] border-[#26211E] shrink-0 mt-1"
                   style={{ backgroundColor: selectedLandmark.color }}
                 />
               </div>
@@ -405,26 +496,24 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
                 {selectedLandmark.summary}
               </p>
 
-              <div className="mt-3 flex flex-wrap items-center gap-2">
+              <div className="mt-3.5 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() =>
                     onSelectObjective(selectedIsObjective ? null : selectedLandmark.id)
                   }
-                  className={`px-3 py-1.5 rounded-lg border-2 border-[#26211E] text-xs font-extrabold inline-flex items-center gap-1.5 cursor-pointer transition-colors ${
-                    selectedIsObjective
-                      ? 'bg-[#E65448] text-[#FFF9F0]'
-                      : 'bg-[#FFF9F0] text-[#26211E] hover:bg-[#E6D3B5]'
+                  className={`ui-btn px-3 py-1.5 text-xs ${
+                    selectedIsObjective ? 'ui-btn-danger' : 'ui-btn-outline'
                   }`}
                 >
                   <Crosshair className="w-3.5 h-3.5" />
-                  <span>{selectedIsObjective ? 'Clear Objective' : 'Set Objective'}</span>
+                  <span>{selectedIsObjective ? 'Clear Waypoint' : 'Set Waypoint'}</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => onDriveTo(selectedLandmark)}
-                  className="px-3 py-1.5 rounded-lg bg-[#21968B] text-[#FFF9F0] border-2 border-[#26211E] text-xs font-extrabold hover:opacity-90 cursor-pointer inline-flex items-center gap-1.5"
+                  className="ui-btn ui-btn-accent px-3 py-1.5 text-xs"
                 >
                   <Navigation className="w-3.5 h-3.5" />
                   <span>Warp Nearby</span>
@@ -433,7 +522,7 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
                 <button
                   type="button"
                   onClick={() => onOpenRoute(selectedLandmark.route)}
-                  className="px-3 py-1.5 rounded-lg bg-[#EC6D2C] text-[#FFF9F0] border-2 border-[#26211E] text-xs font-extrabold hover:bg-[#CC5318] transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                  className="ui-btn ui-btn-primary px-3 py-1.5 text-xs"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
                   <span>Open Page</span>
@@ -441,11 +530,17 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
               </div>
             </div>
 
-            <div className="space-y-1.5 max-h-[260px] overflow-y-auto pr-1">
+            <div className="space-y-1.5 max-h-[240px] overflow-y-auto pr-1">
               {WORLD_LANDMARKS.map((lm) => {
                 const found = discoveredIds.includes(lm.id);
                 const selected = lm.id === highlightedId;
                 const isObj = lm.id === objectiveId;
+                const nav = computeDistanceAndBearing(
+                  playerX,
+                  playerZ,
+                  lm.position.x,
+                  lm.position.z,
+                );
                 return (
                   <button
                     key={lm.id}
@@ -453,8 +548,8 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
                     onClick={() => setHighlightedId(lm.id)}
                     className={`w-full text-left px-3 py-2 rounded-xl border transition-colors flex items-center justify-between gap-2 cursor-pointer ${
                       selected
-                        ? 'bg-[#FFF9F0] border-2 border-[#26211E]'
-                        : 'bg-[#F5E9D4]/55 border-[#E6D3B5] hover:bg-[#F5E9D4]'
+                        ? 'bg-[#FFF9F0] border-2 border-[#26211E] shadow-xs'
+                        : 'bg-[#F5E9D4]/55 border-[#D9C3A3] hover:bg-[#F5E9D4]'
                     }`}
                   >
                     <div className="min-w-0">
@@ -470,9 +565,14 @@ export const WorldMapModal: React.FC<WorldMapModalProps> = ({
                         {lm.subtitle}
                       </div>
                     </div>
-                    <span className="text-[11px] font-extrabold shrink-0 text-[#61564E]">
-                      {found ? 'Visited ✓' : 'Unvisited'}
-                    </span>
+                    <div className="text-right shrink-0">
+                      <div className="text-[11px] font-extrabold text-[#26211E] tabular-nums">
+                        {nav.distanceMeters}m {nav.bearingLabel}
+                      </div>
+                      <div className="text-[10px] font-bold text-[#61564E]">
+                        {found ? 'Visited ✓' : 'Unvisited'}
+                      </div>
+                    </div>
                   </button>
                 );
               })}

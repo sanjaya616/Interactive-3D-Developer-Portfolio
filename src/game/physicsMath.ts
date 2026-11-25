@@ -236,11 +236,196 @@ export function computeGroundHeight(x: number, z: number): number {
   return height;
 }
 
+export const MAIN_LAGOON_BRIDGE = {
+  id: 'main-lagoon-bridge',
+  x: 40,
+  zCenter: -22,
+  halfLength: 10.5,
+  halfWidth: 3.65,
+  deckHalfWidth: 3.45,
+  baseY: 0.03,
+  archRise: 1.25,
+} as const;
+
+export const RING_LAGOON_VIADUCT = {
+  id: 'ring-lagoon-viaduct',
+  radius: 34.0,
+  halfWidth: 2.85,
+  deckHalfWidth: 2.65,
+  angStart: -1.08,
+  angEnd: -0.40,
+  baseY: 0.025,
+  archRise: 0.9,
+} as const;
+
+export const SOUTH_COVE_BRIDGE = {
+  id: 'south-cove-bridge',
+  xCenter: -18,
+  z: 62,
+  halfLength: 11.5,
+  halfWidth: 1.85,
+  deckHalfWidth: 1.72,
+  baseY: 0.03,
+  archRise: 0.85,
+} as const;
+
+function archCurveY(uNorm: number, baseY: number, archRise: number): number {
+  const u = Math.max(0, Math.min(1, uNorm));
+  return baseY + archRise * 0.5 * (1 + Math.cos(Math.PI * u));
+}
+
 export function computeBridgeSurfaceY(x: number, z: number): number | null {
-  if (Math.abs(x - 40) > 3.6 || z < -32 || z > -12) return null;
-  if (z >= -27 && z <= -17) return 0.9;
-  if (z < -27) return 0.9 * smoothstep(-32, -27, z);
-  return 0.9 * (1 - smoothstep(-17, -12, z));
+  let bestY: number | null = null;
+
+  // 1. Main Emerald Lagoon Arched Bridge (x = 40, z in [-32.5, -11.5])
+  if (
+    Math.abs(x - MAIN_LAGOON_BRIDGE.x) <= MAIN_LAGOON_BRIDGE.halfWidth &&
+    Math.abs(z - MAIN_LAGOON_BRIDGE.zCenter) <= MAIN_LAGOON_BRIDGE.halfLength
+  ) {
+    const u = Math.abs(z - MAIN_LAGOON_BRIDGE.zCenter) / MAIN_LAGOON_BRIDGE.halfLength;
+    const y = archCurveY(u, MAIN_LAGOON_BRIDGE.baseY, MAIN_LAGOON_BRIDGE.archRise);
+    bestY = bestY === null ? y : Math.max(bestY, y);
+  }
+
+  // 2. NW Emerald Lagoon Curved Ring Viaduct (r = 34, ang in [-1.08, -0.40])
+  if (x > 10 && z < -5) {
+    const r = Math.hypot(x, z);
+    if (Math.abs(r - RING_LAGOON_VIADUCT.radius) <= RING_LAGOON_VIADUCT.halfWidth) {
+      const ang = Math.atan2(z, x);
+      if (ang >= RING_LAGOON_VIADUCT.angStart && ang <= RING_LAGOON_VIADUCT.angEnd) {
+        const angMid = (RING_LAGOON_VIADUCT.angStart + RING_LAGOON_VIADUCT.angEnd) * 0.5;
+        const angHalf = (RING_LAGOON_VIADUCT.angEnd - RING_LAGOON_VIADUCT.angStart) * 0.5;
+        const u = Math.abs(ang - angMid) / angHalf;
+        const y = archCurveY(u, RING_LAGOON_VIADUCT.baseY, RING_LAGOON_VIADUCT.archRise);
+        bestY = bestY === null ? y : Math.max(bestY, y);
+      }
+    }
+  }
+
+  // 3. South Cove Oasis Timber Crossing (z = 62, x in [-29.5, -6.5])
+  if (
+    Math.abs(z - SOUTH_COVE_BRIDGE.z) <= SOUTH_COVE_BRIDGE.halfWidth &&
+    Math.abs(x - SOUTH_COVE_BRIDGE.xCenter) <= SOUTH_COVE_BRIDGE.halfLength
+  ) {
+    const u = Math.abs(x - SOUTH_COVE_BRIDGE.xCenter) / SOUTH_COVE_BRIDGE.halfLength;
+    const y = archCurveY(u, SOUTH_COVE_BRIDGE.baseY, SOUTH_COVE_BRIDGE.archRise);
+    bestY = bestY === null ? y : Math.max(bestY, y);
+  }
+
+  return bestY;
+}
+
+export interface BridgeDeckColliderSegment {
+  bridgeId: string;
+  x: number;
+  y: number;
+  z: number;
+  hx: number;
+  hy: number;
+  hz: number;
+  pitchX: number;
+  yawY: number;
+  rollZ: number;
+}
+
+/**
+ * Generates overlapping Rapier cuboid chord segments matching the exact arch curves of all 3 bridges
+ * so 4-wheel raycasts and terrain transitions remain seamless with zero vertical jumps or gaps.
+ */
+export function getBridgeColliderSegments(): BridgeDeckColliderSegment[] {
+  const segments: BridgeDeckColliderSegment[] = [];
+
+  // 1. Main Emerald Lagoon Bridge (10 chord segments along Z)
+  const mainSteps = 10;
+  const mainThickness = 0.16;
+  const zMin = MAIN_LAGOON_BRIDGE.zCenter - MAIN_LAGOON_BRIDGE.halfLength;
+  const zMax = MAIN_LAGOON_BRIDGE.zCenter + MAIN_LAGOON_BRIDGE.halfLength;
+  for (let i = 0; i < mainSteps; i++) {
+    const z0 = zMin + (i / mainSteps) * (zMax - zMin);
+    const z1 = zMin + ((i + 1) / mainSteps) * (zMax - zMin);
+    const y0 = computeBridgeSurfaceY(MAIN_LAGOON_BRIDGE.x, z0) ?? MAIN_LAGOON_BRIDGE.baseY;
+    const y1 = computeBridgeSurfaceY(MAIN_LAGOON_BRIDGE.x, z1) ?? MAIN_LAGOON_BRIDGE.baseY;
+    const dz = z1 - z0;
+    const dy = y1 - y0;
+    const chordLen = Math.hypot(dz, dy);
+    const pitchX = -Math.atan2(dy, dz);
+    segments.push({
+      bridgeId: MAIN_LAGOON_BRIDGE.id,
+      x: MAIN_LAGOON_BRIDGE.x,
+      y: (y0 + y1) * 0.5 - mainThickness,
+      z: (z0 + z1) * 0.5,
+      hx: MAIN_LAGOON_BRIDGE.deckHalfWidth,
+      hy: mainThickness,
+      hz: chordLen * 0.5 + 0.14,
+      pitchX,
+      yawY: 0,
+      rollZ: 0,
+    });
+  }
+
+  // 2. NW Ring Viaduct (10 curved chord segments along arc r = 34)
+  const ringSteps = 10;
+  const ringThickness = 0.15;
+  const { radius, angStart, angEnd, deckHalfWidth } = RING_LAGOON_VIADUCT;
+  for (let i = 0; i < ringSteps; i++) {
+    const a0 = angStart + (i / ringSteps) * (angEnd - angStart);
+    const a1 = angStart + ((i + 1) / ringSteps) * (angEnd - angStart);
+    const x0 = Math.cos(a0) * radius;
+    const z0 = Math.sin(a0) * radius;
+    const x1 = Math.cos(a1) * radius;
+    const z1 = Math.sin(a1) * radius;
+    const y0 = computeBridgeSurfaceY(x0, z0) ?? RING_LAGOON_VIADUCT.baseY;
+    const y1 = computeBridgeSurfaceY(x1, z1) ?? RING_LAGOON_VIADUCT.baseY;
+    const dx = x1 - x0;
+    const dz = z1 - z0;
+    const dy = y1 - y0;
+    const horizLen = Math.hypot(dx, dz);
+    const chordLen = Math.hypot(horizLen, dy);
+    const yawY = Math.atan2(dx, dz);
+    const pitchX = -Math.atan2(dy, horizLen);
+    segments.push({
+      bridgeId: RING_LAGOON_VIADUCT.id,
+      x: (x0 + x1) * 0.5,
+      y: (y0 + y1) * 0.5 - ringThickness,
+      z: (z0 + z1) * 0.5,
+      hx: deckHalfWidth,
+      hy: ringThickness,
+      hz: chordLen * 0.5 + 0.18,
+      pitchX,
+      yawY,
+      rollZ: 0,
+    });
+  }
+
+  // 3. South Cove Oasis Bridge (8 chord segments along X)
+  const coveSteps = 8;
+  const coveThickness = 0.14;
+  const xMin = SOUTH_COVE_BRIDGE.xCenter - SOUTH_COVE_BRIDGE.halfLength;
+  const xMax = SOUTH_COVE_BRIDGE.xCenter + SOUTH_COVE_BRIDGE.halfLength;
+  for (let i = 0; i < coveSteps; i++) {
+    const x0 = xMin + (i / coveSteps) * (xMax - xMin);
+    const x1 = xMin + ((i + 1) / coveSteps) * (xMax - xMin);
+    const y0 = computeBridgeSurfaceY(x0, SOUTH_COVE_BRIDGE.z) ?? SOUTH_COVE_BRIDGE.baseY;
+    const y1 = computeBridgeSurfaceY(x1, SOUTH_COVE_BRIDGE.z) ?? SOUTH_COVE_BRIDGE.baseY;
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const chordLen = Math.hypot(dx, dy);
+    const rollZ = Math.atan2(dy, dx);
+    segments.push({
+      bridgeId: SOUTH_COVE_BRIDGE.id,
+      x: (x0 + x1) * 0.5,
+      y: (y0 + y1) * 0.5 - coveThickness,
+      z: SOUTH_COVE_BRIDGE.z,
+      hx: chordLen * 0.5 + 0.14,
+      hy: coveThickness,
+      hz: SOUTH_COVE_BRIDGE.deckHalfWidth,
+      pitchX: 0,
+      yawY: 0,
+      rollZ,
+    });
+  }
+
+  return segments;
 }
 
 export function findNearestLandmark(
@@ -266,8 +451,22 @@ export function getZoneName(x: number, z: number, landmarks: WorldLandmark[]): s
   const { landmark } = findNearestLandmark(x, z, landmarks);
   if (landmark) return landmark.zoneLabel;
 
-  if (Math.abs(x - 40) <= 4.2 && z >= -32 && z <= -12) {
+  if (Math.abs(x - MAIN_LAGOON_BRIDGE.x) <= 4.2 && z >= -32.5 && z <= -11.5) {
     return 'Emerald Lagoon Bridge';
+  }
+  const r = Math.hypot(x, z);
+  const ang = Math.atan2(z, x);
+  if (
+    x > 10 &&
+    z < -5 &&
+    Math.abs(r - RING_LAGOON_VIADUCT.radius) <= 3.4 &&
+    ang >= RING_LAGOON_VIADUCT.angStart &&
+    ang <= RING_LAGOON_VIADUCT.angEnd
+  ) {
+    return 'Lagoon Ring Viaduct';
+  }
+  if (Math.abs(z - SOUTH_COVE_BRIDGE.z) <= 2.4 && Math.abs(x - SOUTH_COVE_BRIDGE.xCenter) <= 12) {
+    return 'South Cove Footbridge';
   }
   if (Math.abs(x + 42) <= 4.5 && z >= -13 && z <= 5) {
     return 'West Ridge Tunnel';

@@ -1,9 +1,27 @@
 import React, { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import gsap from 'gsap';
-import { ArrowRight, Mail } from 'lucide-react';
+import {
+  ArrowRight,
+  Cpu,
+  Database,
+  Film,
+  Globe,
+  Mail,
+  Palette,
+  Smartphone,
+} from 'lucide-react';
 import { PortfolioLayout } from '../components/PortfolioLayout';
 import { SERVICES_LIST } from '../data/portfolioData';
+
+const SERVICE_ICONS: Record<string, React.ReactNode> = {
+  'web-dev': <Globe className="w-5 h-5 text-[#EC6D2C]" />,
+  'ui-design': <Palette className="w-5 h-5 text-[#21968B]" />,
+  'db-systems': <Database className="w-5 h-5 text-[#3E7B9E]" />,
+  'mobile-dev': <Smartphone className="w-5 h-5 text-[#21968B]" />,
+  'graphics-video': <Film className="w-5 h-5 text-[#E65448]" />,
+  'electronics-prototyping': <Cpu className="w-5 h-5 text-[#5E915E]" />,
+};
 
 export const ServicesPage: React.FC = () => {
   const established = SERVICES_LIST.filter((s) => s.tier === 'Established Service');
@@ -46,30 +64,29 @@ export const ServicesPage: React.FC = () => {
               >
                 <div>
                   <div className="flex items-center justify-between gap-2 text-xs font-extrabold">
-                    <span className="text-[#EC6D2C]">{srv.number}. SERVICE</span>
-                    <span className="px-2.5 py-0.5 rounded-md bg-[#21968B] text-[#FFF9F0] border border-[#26211E]">
+                    <div className="flex items-center gap-2">
+                      <span className="w-9 h-9 rounded-xl bg-[#F5E9D4] border border-[#D9C3A3] flex items-center justify-center shrink-0">
+                        {SERVICE_ICONS[srv.id] ?? <Globe className="w-5 h-5 text-[#EC6D2C]" />}
+                      </span>
+                      <span className="text-[#EC6D2C]">{srv.number}. SERVICE</span>
+                    </div>
+                    <span className="px-2.5 py-0.5 rounded-md bg-[#21968B] text-[#FFF9F0] border border-[#26211E]/30">
                       {srv.tier}
                     </span>
                   </div>
-                  <h3 className="font-display text-4xl font-bold text-[#26211E] mt-2">
+                  <h3 className="font-display text-4xl font-bold text-[#26211E] mt-3">
                     {srv.title}
                   </h3>
-                  <p className="mt-3 text-sm font-semibold text-[#61564E] leading-relaxed">
+                  <p className="mt-2.5 text-sm font-semibold text-[#61564E] leading-relaxed">
                     {srv.description}
                   </p>
 
-                  <div className="mt-4 flex flex-wrap gap-1.5">
-                    {srv.technologies.map((tech) => (
-                      <span
-                        key={tech}
-                        className="px-2 py-0.5 rounded-md bg-[#F5E9D4] border border-[#D9C3A3] text-[11px] font-extrabold text-[#26211E]"
-                      >
-                        {tech}
-                      </span>
-                    ))}
+                  <div className="mt-4 text-xs font-extrabold text-[#26211E]">
+                    <span className="text-[#61564E] font-bold mr-1.5">Tools:</span>
+                    {srv.technologies.join(' · ')}
                   </div>
 
-                  <ul className="mt-4 pt-4 border-t border-[#E6D3B5] space-y-2">
+                  <ul className="mt-4 pt-4 border-t ui-divider space-y-2">
                     {srv.focusAreas.map((d) => (
                       <li key={d} className="text-xs sm:text-sm font-bold text-[#26211E]">
                         • {d}
@@ -80,7 +97,7 @@ export const ServicesPage: React.FC = () => {
 
                 <Link
                   to={`/contact?topic=${encodeURIComponent(srv.title)}`}
-                  className="mt-6 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#EC6D2C] text-[#FFF9F0] border-2 border-[#26211E] shadow-[0_2px_0_#26211E] text-xs font-extrabold hover:bg-[#CC5318] transition-colors duration-150"
+                  className="mt-6 ui-btn ui-btn-primary px-4 py-2.5 text-xs"
                 >
                   <Mail className="w-3.5 h-3.5" />
                   <span>Contact Me</span>
@@ -105,34 +122,33 @@ export const ServicesPage: React.FC = () => {
             {exploratory.map((srv) => (
               <article
                 key={srv.id}
-                className="service-card-anim bg-[#F5E9D4]/75 border-2 border-[#26211E] rounded-2xl p-6 shadow-[0_5px_0_#26211E] flex flex-col justify-between transition-transform duration-150 hover:-translate-y-0.5"
+                className="service-card-anim ui-card-interactive bg-[#F5E9D4]/75! p-6 flex flex-col justify-between"
               >
                 <div>
                   <div className="flex items-center justify-between gap-2 text-xs font-extrabold">
-                    <span className="text-[#61564E]">{srv.number}. AREA</span>
+                    <div className="flex items-center gap-2">
+                      <span className="w-9 h-9 rounded-xl bg-[#FFF9F0] border border-[#D9C3A3] flex items-center justify-center shrink-0">
+                        {SERVICE_ICONS[srv.id] ?? <Cpu className="w-5 h-5 text-[#5E915E]" />}
+                      </span>
+                      <span className="text-[#61564E]">{srv.number}. AREA</span>
+                    </div>
                     <span className="px-2.5 py-0.5 rounded-md bg-[#FFF9F0] text-[#26211E] border border-[#D9C3A3]">
                       {srv.tier}
                     </span>
                   </div>
-                  <h3 className="font-display text-4xl font-bold text-[#26211E] mt-2">
+                  <h3 className="font-display text-4xl font-bold text-[#26211E] mt-3">
                     {srv.title}
                   </h3>
-                  <p className="mt-3 text-sm font-semibold text-[#61564E] leading-relaxed">
+                  <p className="mt-2.5 text-sm font-semibold text-[#61564E] leading-relaxed">
                     {srv.description}
                   </p>
 
-                  <div className="mt-4 flex flex-wrap gap-1.5">
-                    {srv.technologies.map((tech) => (
-                      <span
-                        key={tech}
-                        className="px-2 py-0.5 rounded-md bg-[#FFF9F0] border border-[#D9C3A3] text-[11px] font-extrabold text-[#26211E]"
-                      >
-                        {tech}
-                      </span>
-                    ))}
+                  <div className="mt-4 text-xs font-extrabold text-[#26211E]">
+                    <span className="text-[#61564E] font-bold mr-1.5">Tools:</span>
+                    {srv.technologies.join(' · ')}
                   </div>
 
-                  <ul className="mt-4 pt-4 border-t border-[#E6D3B5] space-y-2">
+                  <ul className="mt-4 pt-4 border-t ui-divider space-y-2">
                     {srv.focusAreas.map((d) => (
                       <li key={d} className="text-xs sm:text-sm font-bold text-[#26211E]">
                         • {d}
@@ -144,14 +160,14 @@ export const ServicesPage: React.FC = () => {
                 <div className="mt-6 flex flex-wrap gap-2">
                   <Link
                     to={`/contact?topic=${encodeURIComponent(srv.title)}`}
-                    className="flex-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-[#26211E] text-[#FFF9F0] text-xs font-extrabold hover:opacity-90 transition-opacity"
+                    className="flex-1 ui-btn ui-btn-dark px-3.5 py-2.5 text-xs"
                   >
                     <Mail className="w-3.5 h-3.5" />
                     <span>Contact Me</span>
                   </Link>
                   <Link
                     to="/projects"
-                    className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-[#FFF9F0] text-[#26211E] border-2 border-[#26211E] text-xs font-extrabold hover:bg-[#E6D3B5] transition-colors"
+                    className="ui-btn ui-btn-outline px-3.5 py-2.5 text-xs"
                   >
                     <span>Prototypes</span>
                     <ArrowRight className="w-3.5 h-3.5" />

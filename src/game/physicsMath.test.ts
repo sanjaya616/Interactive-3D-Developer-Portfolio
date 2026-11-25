@@ -1,11 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  MAIN_LAGOON_BRIDGE,
+  RING_LAGOON_VIADUCT,
+  SOUTH_COVE_BRIDGE,
   clampDt,
   computeBridgeSurfaceY,
   computeDrivingParamsForVehicle,
   computeGroundHeight,
   findNearestLandmark,
+  getBridgeColliderSegments,
   getZoneName,
   speedMsToKmh,
   stepPlanarDriving,
@@ -24,6 +28,11 @@ import {
   generateWorldVegetationLayout,
   resolveWindProfile,
 } from './vegetationPlacement';
+import {
+  WEATHER_ATMOSPHERE_PRESETS,
+  generateCloudLayerConfigs,
+  getShadowConfigForQuality,
+} from './atmospherePresets';
 import { ChallengeManager } from './challengeController';
 import {
   ACHIEVEMENTS_LIST,
@@ -130,15 +139,62 @@ test('speedMsToKmh converts to integer km/h', () => {
   assert.equal(speedMsToKmh(-5), 18);
 });
 
-test('computeGroundHeight models flat plaza, Lookout Hill plateau, water basins, and bridge surface', () => {
+test('computeGroundHeight models flat plaza, Lookout Hill plateau, water basins, and all 3 arched bridges', () => {
   assert.equal(computeGroundHeight(0, 0), 0);
   assert.equal(computeGroundHeight(-36, -34), 0);
   assert.equal(computeGroundHeight(0, -72), 3.6);
   assert.ok(computeGroundHeight(0, -49) > 1.0 && computeGroundHeight(0, -49) < 3.0);
   assert.ok(computeGroundHeight(45, -22) < -1.0);
   assert.ok(computeGroundHeight(-18, 66) < -1.0);
-  assert.equal(computeBridgeSurfaceY(40, -22), 0.9);
   assert.equal(computeBridgeSurfaceY(0, 0), null);
+
+  // Main Emerald Lagoon Arched Bridge: smooth cosine arch peaking at 1.28m
+  const mainCrown = computeBridgeSurfaceY(40, -22);
+  const mainMid = computeBridgeSurfaceY(40, -27);
+  const mainEnd = computeBridgeSurfaceY(40, -32.49);
+  assert.ok(mainCrown !== null && Math.abs(mainCrown - 1.28) < 1e-5);
+  assert.ok(mainMid !== null && mainMid > 0.1 && mainMid < mainCrown);
+  assert.ok(mainEnd !== null && Math.abs(mainEnd - MAIN_LAGOON_BRIDGE.baseY) < 0.02);
+
+  // NW Lagoon Curved Ring Viaduct covering Time Trial gate (28, -20) over water
+  const ringEntryY = computeBridgeSurfaceY(28, -20);
+  const midAng = (RING_LAGOON_VIADUCT.angStart + RING_LAGOON_VIADUCT.angEnd) * 0.5;
+  const ringCrownY = computeBridgeSurfaceY(
+    Math.cos(midAng) * RING_LAGOON_VIADUCT.radius,
+    Math.sin(midAng) * RING_LAGOON_VIADUCT.radius,
+  );
+  assert.ok(ringEntryY !== null && ringEntryY > 0.45);
+  assert.ok(
+    ringCrownY !== null &&
+      Math.abs(ringCrownY - (RING_LAGOON_VIADUCT.baseY + RING_LAGOON_VIADUCT.archRise)) < 1e-4,
+  );
+
+  // South Cove Oasis Timber Footbridge supporting secret-cove-relic at (-18, 62)
+  const coveCrownY = computeBridgeSurfaceY(-18, 62);
+  assert.ok(
+    coveCrownY !== null &&
+      Math.abs(coveCrownY - (SOUTH_COVE_BRIDGE.baseY + SOUTH_COVE_BRIDGE.archRise)) < 1e-4,
+  );
+
+  // Continuous arch collider chords cover all 3 bridges with finite orientations
+  const colliders = getBridgeColliderSegments();
+  assert.equal(
+    colliders.filter((c) => c.bridgeId === MAIN_LAGOON_BRIDGE.id).length,
+    10,
+  );
+  assert.equal(
+    colliders.filter((c) => c.bridgeId === RING_LAGOON_VIADUCT.id).length,
+    10,
+  );
+  assert.equal(
+    colliders.filter((c) => c.bridgeId === SOUTH_COVE_BRIDGE.id).length,
+    8,
+  );
+  for (const seg of colliders) {
+    const topCenterY = seg.y + seg.hy;
+    const exactDeckY = computeBridgeSurfaceY(seg.x, seg.z);
+    assert.ok(exactDeckY !== null && Math.abs(topCenterY - exactDeckY) < 0.06);
+  }
 });
 
 test('water wave sampler and boat buoyancy stay continuous, weather-responsive, and below bridge decks', () => {
@@ -215,6 +271,8 @@ test('all 9 destinations are distinct, non-overlapping, and detected cleanly', (
 
   assert.equal(getZoneName(0, 0, WORLD_LANDMARKS), 'Starting Plaza');
   assert.equal(getZoneName(40, -22, WORLD_LANDMARKS), 'Emerald Lagoon Bridge');
+  assert.equal(getZoneName(28, -20, WORLD_LANDMARKS), 'Lagoon Ring Viaduct');
+  assert.equal(getZoneName(-18, 62, WORLD_LANDMARKS), 'South Cove Footbridge');
   assert.equal(getZoneName(-42, -4, WORLD_LANDMARKS), 'West Ridge Tunnel');
 });
 
@@ -446,8 +504,12 @@ test('vegetation layout populates all 8+ species groups, hugs terrain, and keeps
     assert.ok(Math.hypot(p.x, p.z) >= 14.5, `${p.species} inside Starting Plaza`);
     assert.equal(computeWaterShoreDepth(p.x, p.z), 0, `${p.species} placed in water basin`);
     assert.ok(
-      !(p.x >= 35 && p.x <= 45 && p.z >= -33 && p.z <= -11),
+      !(p.x >= 35 && p.x <= 45 && p.z >= -33.5 && p.z <= -10.5),
       `${p.species} encroached on Emerald Lagoon Bridge`,
+    );
+    assert.ok(
+      !(p.x >= -30.5 && p.x <= -5.5 && p.z >= 59.5 && p.z <= 64.5),
+      `${p.species} encroached on South Cove Footbridge`,
     );
     // Lookout Hill ramp clear
     assert.ok(
@@ -486,4 +548,35 @@ test('resolveWindProfile maps weather modes and manual overrides deterministical
   assert.ok(calm.trunkAmp < normal.trunkAmp && normal.trunkAmp < strong.trunkAmp);
   assert.ok(calm.frondAmp < normal.frondAmp && normal.frondAmp < strong.frondAmp);
   assert.ok(calm.gustStrength < normal.gustStrength && normal.gustStrength < strong.gustStrength);
+});
+
+test('atmosphere presets, shadow scaling, and multi-layer cloud velocities are calibrated', () => {
+  const { sunny, sunset, night, rain, fog } = WEATHER_ATMOSPHERE_PRESETS;
+  assert.ok(sunset.sunsetBandStrength > sunny.sunsetBandStrength);
+  assert.ok(sunset.sunPos[1] < sunny.sunPos[1]);
+  assert.ok(night.starOpacity > 0.85);
+  assert.equal(night.nightGlow, 1.0);
+  assert.ok(night.hemiIntensity >= 0.48, 'Night lighting keeps world readable');
+  assert.equal(rain.wetness, 1.0);
+  assert.equal(rain.rainStrength, 1.0);
+  assert.ok(fog.fogDensity > sunny.fogDensity && fog.fogDensity <= 0.012);
+
+  const highShadow = getShadowConfigForQuality('high', false);
+  const medShadow = getShadowConfigForQuality('medium', false);
+  const lowShadow = getShadowConfigForQuality('low', false);
+  const swShadow = getShadowConfigForQuality('high', true);
+  assert.equal(highShadow.enabled, true);
+  assert.equal(highShadow.mapSize, 2048);
+  assert.equal(medShadow.enabled, true);
+  assert.equal(medShadow.mapSize, 1024);
+  assert.equal(lowShadow.enabled, false);
+  assert.equal(swShadow.enabled, false);
+
+  const clouds = generateCloudLayerConfigs();
+  const cumulus = clouds.filter((c) => c.layer === 'cumulus');
+  const cirrus = clouds.filter((c) => c.layer === 'cirrus');
+  assert.ok(cumulus.length >= 10);
+  assert.ok(cirrus.length >= 6);
+  const uniqueDirections = new Set(clouds.map((c) => `${c.vx.toFixed(2)},${c.vz.toFixed(2)}`));
+  assert.ok(uniqueDirections.size >= 8, 'Clouds move with diverse speeds and directions');
 });

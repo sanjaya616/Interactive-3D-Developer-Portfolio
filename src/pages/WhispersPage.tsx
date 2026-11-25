@@ -136,29 +136,29 @@ export const WhispersPage: React.FC = () => {
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Search name, country, note..."
-                className="w-full pl-9 pr-3 py-2 rounded-xl border-2 border-[#26211E] bg-[#FFF9F0] text-xs font-bold text-[#26211E] placeholder:text-[#61564E]/60 focus:outline-none focus:border-[#EC6D2C]"
+                className="ui-input pl-9! pr-3! py-2! text-xs!"
               />
             </div>
           </div>
 
           {whispersError && (
-            <div className="p-4 rounded-2xl bg-[#FFF9F0] border-2 border-[#E65448] text-sm font-bold text-[#E65448]">
+            <div className="ui-card border-[#E65448]! p-4 text-sm font-bold text-[#E65448]">
               {whispersError}
             </div>
           )}
 
           {reportNotice && (
-            <div className="p-3.5 rounded-xl bg-[#FFF9F0] border-2 border-[#21968B] text-xs font-extrabold text-[#26211E]">
+            <div className="ui-card border-[#21968B]! p-3.5 text-xs font-extrabold text-[#26211E]">
               {reportNotice}
             </div>
           )}
 
           {whispersLoading ? (
-            <div className="ui-card bg-[#FFF9F0] rounded-2xl p-8 text-center text-sm font-bold text-[#61564E]">
+            <div className="ui-card p-8 text-center text-sm font-bold text-[#61564E]">
               Loading live guestbook messages...
             </div>
           ) : filteredWhispers.length === 0 ? (
-            <div className="bg-[#F5E9D4]/80 border-2 border-[#26211E] rounded-2xl p-8 shadow-[0_5px_0_#26211E] text-center">
+            <div className="ui-card-sand p-8 text-center">
               <MessageSquarePlus className="w-8 h-8 text-[#EC6D2C] mx-auto" />
               <h2 className="font-display text-3xl font-bold text-[#26211E] mt-2">
                 {searchTerm.trim() ? 'NO MATCHING WHISPERS' : 'BE THE FIRST TO LEAVE A WHISPER'}
@@ -177,7 +177,7 @@ export const WhispersPage: React.FC = () => {
                 return (
                   <article
                     key={w.id}
-                    className="ui-card ui-card-interactive bg-[#FFF9F0] rounded-2xl p-4 flex flex-col justify-between gap-2.5"
+                    className="ui-card-interactive p-4 flex flex-col justify-between gap-2.5"
                   >
                     <div>
                       <div className="flex items-center justify-between gap-2 text-xs font-bold text-[#61564E]">
@@ -253,7 +253,7 @@ export const WhispersPage: React.FC = () => {
           {authUser?.isAdmin && (
             <section
               aria-label="Moderation Queue"
-              className="mt-6 bg-[#F5E9D4] border-2 border-[#26211E] rounded-2xl p-5 shadow-[0_5px_0_#26211E] space-y-3"
+              className="mt-6 ui-card-featured bg-[#F5E9D4]! p-5 space-y-3"
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 text-[#26211E]">
@@ -271,7 +271,7 @@ export const WhispersPage: React.FC = () => {
                   {moderationWhispers.map((item) => (
                     <div
                       key={item.id}
-                      className="p-3 rounded-xl bg-[#FFF9F0] border border-[#D9C3A3] flex flex-wrap items-center justify-between gap-2"
+                      className="ui-card p-3 flex flex-wrap items-center justify-between gap-2"
                     >
                       <div className="min-w-0">
                         <div className="text-xs font-extrabold text-[#26211E]">
@@ -286,7 +286,7 @@ export const WhispersPage: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => void moderateWhisper(item.id, 'published')}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#21968B] text-[#FFF9F0] text-[11px] font-extrabold cursor-pointer"
+                            className="ui-btn ui-btn-accent px-2.5 py-1 text-[11px]"
                           >
                             <CheckCircle2 className="w-3 h-3" />
                             <span>Publish</span>
@@ -296,7 +296,7 @@ export const WhispersPage: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => void moderateWhisper(item.id, 'removed')}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F5E9D4] border border-[#D9C3A3] text-[#26211E] text-[11px] font-extrabold hover:border-[#26211E] cursor-pointer"
+                            className="ui-btn ui-btn-secondary px-2.5 py-1 text-[11px]"
                           >
                             <EyeOff className="w-3 h-3" />
                             <span>Hide</span>
@@ -306,7 +306,7 @@ export const WhispersPage: React.FC = () => {
                           type="button"
                           onClick={() => void removeWhisper(item.id)}
                           aria-label={`Delete whisper by ${item.author}`}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#E65448] text-[#FFF9F0] text-[11px] font-extrabold cursor-pointer"
+                          className="ui-btn ui-btn-danger px-2.5 py-1 text-[11px]"
                         >
                           <Trash2 className="w-3 h-3" />
                           <span>Delete</span>
@@ -321,7 +321,7 @@ export const WhispersPage: React.FC = () => {
         </div>
 
         {/* Compose Form */}
-        <aside className="lg:col-span-5 bg-[#F5E9D4] border-2 border-[#26211E] rounded-2xl p-6 shadow-[0_5px_0_#26211E]">
+        <aside className="lg:col-span-5 ui-card-featured bg-[#F5E9D4]! p-6">
           <div className="flex items-center gap-2 text-[#21968B]">
             <ShieldCheck className="w-4 h-4" />
             <span className="text-xs font-extrabold tracking-wider">SPAM-GUARDED GUESTBOOK</span>
@@ -334,7 +334,7 @@ export const WhispersPage: React.FC = () => {
           </p>
 
           {!authUser ? (
-            <div className="mt-5 p-4 rounded-xl bg-[#FFF9F0] border-2 border-[#D9C3A3] space-y-3">
+            <div className="ui-card mt-5 p-4 space-y-3">
               <p className="text-xs font-bold text-[#26211E]">
                 Browsing is open to everyone. Sign in with Google to verify your visitor note and help keep the board spam-free.
               </p>
@@ -342,7 +342,7 @@ export const WhispersPage: React.FC = () => {
                 type="button"
                 disabled={authBusy}
                 onClick={() => void signInGoogle()}
-                className="w-full py-2.5 rounded-xl bg-[#21968B] text-[#FFF9F0] border-2 border-[#26211E] shadow-[0_3px_0_#26211E] text-sm font-extrabold inline-flex items-center justify-center gap-2 hover:brightness-105 transition-all cursor-pointer"
+                className="ui-btn ui-btn-accent w-full py-2.5 text-sm"
               >
                 <LogIn className="w-4 h-4" />
                 <span>{authBusy ? 'Signing in...' : 'Sign in with Google to Post'}</span>
@@ -351,7 +351,7 @@ export const WhispersPage: React.FC = () => {
           ) : (
             <form onSubmit={handlePost} className="mt-4 space-y-3.5">
               <div>
-                <label htmlFor="wh-author" className="block text-xs font-extrabold text-[#26211E] mb-1">
+                <label htmlFor="wh-author" className="ui-label">
                   Display Name
                 </label>
                 <input
@@ -362,19 +362,19 @@ export const WhispersPage: React.FC = () => {
                   value={authorName}
                   onChange={(e) => setAuthorName(e.target.value)}
                   placeholder="Your name"
-                  className="w-full px-3.5 py-2 rounded-xl border-2 border-[#26211E] bg-[#FFF9F0] text-sm font-bold text-[#26211E] focus:outline-none focus:border-[#EC6D2C]"
+                  className="ui-input"
                 />
               </div>
 
               <div>
-                <label htmlFor="wh-country" className="block text-xs font-extrabold text-[#26211E] mb-1">
+                <label htmlFor="wh-country" className="ui-label">
                   Country Flag
                 </label>
                 <select
                   id="wh-country"
                   value={countryCode}
                   onChange={(e) => setCountryCode(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border-2 border-[#26211E] bg-[#FFF9F0] text-sm font-bold text-[#26211E] focus:outline-none focus:border-[#EC6D2C]"
+                  className="ui-select"
                 >
                   {WHISPER_COUNTRIES.map((c) => (
                     <option key={c.code} value={c.code}>
@@ -386,7 +386,7 @@ export const WhispersPage: React.FC = () => {
 
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label htmlFor="wh-msg" className="text-xs font-extrabold text-[#26211E]">
+                  <label htmlFor="wh-msg" className="ui-label mb-0!">
                     Short Message
                   </label>
                   <span
@@ -405,7 +405,7 @@ export const WhispersPage: React.FC = () => {
                   value={message}
                   onChange={(e) => setMessage(e.target.value.slice(0, MAX_WHISPER_CHARS))}
                   placeholder="Cool 3D world!"
-                  className="w-full px-3.5 py-2 rounded-xl border-2 border-[#26211E] bg-[#FFF9F0] text-sm font-bold text-[#26211E] focus:outline-none focus:border-[#EC6D2C]"
+                  className="ui-input"
                 />
               </div>
 
@@ -419,7 +419,7 @@ export const WhispersPage: React.FC = () => {
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full py-2.5 rounded-xl bg-[#EC6D2C] text-[#FFF9F0] border-2 border-[#26211E] shadow-[0_3px_0_#26211E] text-sm font-extrabold inline-flex items-center justify-center gap-2 hover:bg-[#CC5318] transition-colors cursor-pointer disabled:opacity-60"
+                className="ui-btn ui-btn-primary w-full py-2.5 text-sm"
               >
                 <Send className="w-4 h-4" />
                 <span>{submitting ? 'Verifying & Publishing...' : 'Publish Whisper'}</span>

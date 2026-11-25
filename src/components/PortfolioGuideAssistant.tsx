@@ -198,7 +198,7 @@ export const PortfolioGuideAssistant: React.FC = () => {
             e.currentTarget.blur();
             setAssistantOpen(true);
           }}
-          className={`fixed ${buttonPositionClass} z-30 inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-[#26211E] text-[#FFF9F0] border-2 border-[#26211E] shadow-[0_4px_0_#EC6D2C] hover:bg-[#3A322D] active:translate-y-0.5 transition-all duration-150 cursor-pointer`}
+          className={`fixed ${buttonPositionClass} z-30 ui-btn ui-btn-dark px-3.5 py-2.5 shadow-[0_4px_0_#EC6D2C]`}
         >
           <Sparkles className="w-4 h-4 text-[#EC6D2C] shrink-0" />
           <span className="text-xs sm:text-sm font-extrabold tracking-wide">AI Guide</span>
@@ -216,191 +216,186 @@ export const PortfolioGuideAssistant: React.FC = () => {
             data-testid="ai-guide-panel"
             role="dialog"
             aria-label="Sanjaya's World AI Portfolio Guide"
-            className="animate-modal-pop fixed z-40 inset-x-3 bottom-4 sm:inset-x-auto sm:right-5 sm:bottom-6 sm:w-[400px] h-[min(560px,calc(100dvh-5.5rem))] bg-[#FFF9F0] border-2 border-[#26211E] rounded-2xl shadow-[0_8px_0_#26211E] flex flex-col overflow-hidden"
+            className="animate-modal-pop ui-modal-panel fixed z-40 inset-x-3 bottom-4 sm:inset-x-auto sm:right-5 sm:bottom-6 sm:w-[400px] h-[min(560px,calc(100dvh-5.5rem))] flex flex-col overflow-hidden"
           >
-          {/* Header */}
-          <div className="px-4 py-3 bg-[#F5E9D4] border-b-2 border-[#26211E] flex items-center justify-between gap-2 shrink-0">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-9 h-9 rounded-xl bg-[#EC6D2C] border-2 border-[#26211E] flex items-center justify-center text-[#FFF9F0] shrink-0">
-                <MessageSquareText className="w-4 h-4" />
+            {/* Header */}
+            <div className="px-4 py-3 bg-[#F5E9D4] border-b border-[#D9C3A3] flex items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-[#EC6D2C] border-[1.5px] border-[#26211E] flex items-center justify-center text-[#FFF9F0] shrink-0 shadow-[0_2px_0_#26211E]">
+                  <MessageSquareText className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="font-display text-2xl sm:text-3xl font-bold text-[#26211E] leading-none truncate">
+                    SANJAYA&apos;S AI GUIDE
+                  </h2>
+                  <p className="text-[11px] font-bold text-[#61564E] truncate">
+                    {serviceAvailable === false
+                      ? 'AI temporarily offline · Portfolio pages active'
+                      : 'Verified portfolio & 3D world guide'}
+                  </p>
+                </div>
               </div>
-              <div className="min-w-0">
-                <h2 className="font-display text-2xl sm:text-3xl font-bold text-[#26211E] leading-none truncate">
-                  SANJAYA&apos;S AI GUIDE
-                </h2>
-                <p className="text-[11px] font-bold text-[#61564E] truncate">
-                  {serviceAvailable === false
-                    ? 'AI temporarily offline · Portfolio pages active'
-                    : 'Verified portfolio & 3D world guide'}
-                </p>
-              </div>
-            </div>
 
-            <div className="flex items-center gap-1.5 shrink-0">
-              {messages.length > 0 && (
+              <div className="flex items-center gap-1.5 shrink-0">
+                {messages.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleReset}
+                    aria-label="Clear conversation"
+                    title="New conversation"
+                    className="ui-btn ui-btn-outline w-8 h-8 p-0"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={handleReset}
-                  aria-label="Clear conversation"
-                  title="New conversation"
-                  className="w-8 h-8 rounded-lg bg-[#FFF9F0] border border-[#26211E] flex items-center justify-center text-[#26211E] hover:bg-[#E6D3B5] cursor-pointer"
+                  onClick={() => setAssistantOpen(false)}
+                  aria-label="Close AI Portfolio Guide"
+                  className="ui-btn ui-btn-outline w-8 h-8 p-0"
                 >
-                  <RotateCcw className="w-3.5 h-3.5" />
+                  <X className="w-4 h-4" />
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setAssistantOpen(false)}
-                aria-label="Close AI Portfolio Guide"
-                className="w-8 h-8 rounded-lg bg-[#FFF9F0] border border-[#26211E] flex items-center justify-center text-[#26211E] hover:bg-[#E6D3B5] cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Scrollable Messages & Suggested Prompts */}
-          <div className="flex-1 overflow-y-auto p-3.5 space-y-3 bg-[#FFF9F0]">
-            {/* Welcome Card */}
-            <div className="p-3.5 rounded-xl bg-[#F5E9D4]/75 border border-[#D9C3A3] text-xs sm:text-sm font-semibold text-[#26211E] leading-relaxed">
-              Hi! Ask me anything about <strong>Sanjaya Lakshan</strong>—his NIBM studies, freelance experience since 2023, 11 projects, tech stack, services, contact info, or where to drive next in the 3D world.
-            </div>
-
-            {/* Suggested Questions (shown initially and expandable via quick bar when empty) */}
-            {messages.length === 0 && (
-              <div>
-                <div className="text-[10px] font-extrabold tracking-wider text-[#61564E] mb-1.5">
-                  SUGGESTED QUESTIONS
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {SUGGESTED_QUESTIONS.map((q) => (
-                    <button
-                      key={q}
-                      type="button"
-                      disabled={loading}
-                      onClick={() => void sendPrompt(q, true)}
-                      className="text-left px-2.5 py-1.5 rounded-lg bg-[#F5E9D4] border border-[#D9C3A3] hover:border-[#26211E] text-xs font-bold text-[#26211E] hover:bg-[#FFE08A] transition-colors cursor-pointer disabled:opacity-60"
-                    >
-                      {q}
-                    </button>
-                  ))}
-                </div>
               </div>
-            )}
+            </div>
 
-            {/* Chat History */}
-            {messages.map((m) => (
-              <div
-                key={m.id}
-                className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}
-              >
-                <div
-                  className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words ${
-                    m.role === 'user'
-                      ? 'bg-[#EC6D2C] text-[#FFF9F0] border-2 border-[#26211E] font-bold rounded-br-sm'
-                      : 'bg-[#F5E9D4] text-[#26211E] border border-[#D9C3A3] font-semibold rounded-bl-sm'
-                  }`}
-                >
-                  {m.text}
-                </div>
+            {/* Scrollable Messages & Suggested Prompts */}
+            <div className="flex-1 overflow-y-auto p-3.5 space-y-3 bg-[#FFF9F0]">
+              <div className="p-3.5 ui-card-sand text-xs sm:text-sm font-semibold text-[#26211E] leading-relaxed">
+                Hi! Ask me anything about <strong>Sanjaya Lakshan</strong>—his NIBM studies, freelance experience since 2023, 11 projects, tech stack, services, contact info, or where to drive next in the 3D world.
+              </div>
 
-                {m.role === 'model' && m.suggestions && m.suggestions.length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap gap-1.5 max-w-[92%]">
-                    {m.suggestions.map((nav) => (
+              {messages.length === 0 && (
+                <div>
+                  <div className="text-[10px] font-extrabold tracking-wider text-[#61564E] mb-1.5">
+                    SUGGESTED QUESTIONS
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {SUGGESTED_QUESTIONS.map((q) => (
                       <button
-                        key={nav.route}
+                        key={q}
                         type="button"
-                        onClick={() => handleNavAction(nav)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#21968B] text-[#FFF9F0] border border-[#26211E] text-[11px] font-extrabold hover:opacity-90 cursor-pointer"
+                        disabled={loading}
+                        onClick={() => void sendPrompt(q, true)}
+                        className="text-left px-2.5 py-1.5 rounded-lg bg-[#F5E9D4] border border-[#D9C3A3] hover:border-[#26211E] text-xs font-bold text-[#26211E] hover:bg-[#FFE08A] transition-colors cursor-pointer disabled:opacity-60"
                       >
-                        {isWorldRoute && nav.landmarkId ? (
-                          <Compass className="w-3 h-3 shrink-0" />
-                        ) : (
-                          <ExternalLink className="w-3 h-3 shrink-0" />
-                        )}
-                        <span>
-                          {isWorldRoute && nav.landmarkId
-                            ? `Drive to ${nav.label.split(' (')[0].replace('View ', '')}`
-                            : nav.label}
-                        </span>
+                        {q}
                       </button>
                     ))}
                   </div>
-                )}
-              </div>
-            ))}
-
-            {/* Typing Indicator */}
-            {loading && (
-              <div
-                data-testid="ai-typing-indicator"
-                aria-live="polite"
-                className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-2xl rounded-bl-sm bg-[#F5E9D4] border border-[#D9C3A3] text-xs font-extrabold text-[#61564E]"
-              >
-                <span>Thinking</span>
-                <span className="inline-flex items-center gap-1" aria-hidden="true">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#EC6D2C] animate-bounce [animation-delay:-0.2s]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#EC6D2C] animate-bounce [animation-delay:-0.1s]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#EC6D2C] animate-bounce" />
-                </span>
-              </div>
-            )}
-
-            {/* Error State */}
-            {errorMsg && (
-              <div
-                role="alert"
-                data-testid="ai-error-banner"
-                className="p-3 rounded-xl bg-[#FFF9F0] border-2 border-[#E65448] text-xs font-bold text-[#26211E] space-y-2"
-              >
-                <div className="flex items-start gap-2 text-[#E65448]">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{errorMsg}</span>
                 </div>
-                {lastFailedPrompt && (
-                  <button
-                    type="button"
-                    disabled={loading}
-                    onClick={() => void sendPrompt(lastFailedPrompt, false)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F5E9D4] border border-[#26211E] text-[11px] font-extrabold text-[#26211E] hover:bg-[#E6D3B5] cursor-pointer"
+              )}
+
+              {messages.map((m) => (
+                <div
+                  key={m.id}
+                  className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}
+                >
+                  <div
+                    className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words ${
+                      m.role === 'user'
+                        ? 'bg-[#EC6D2C] text-[#FFF9F0] border-[1.5px] border-[#26211E] font-bold rounded-br-sm'
+                        : 'bg-[#F5E9D4] text-[#26211E] border border-[#D9C3A3] font-semibold rounded-bl-sm'
+                    }`}
                   >
-                    <RefreshCw className="w-3 h-3" />
-                    <span>Retry Question</span>
-                  </button>
-                )}
-              </div>
-            )}
+                    {m.text}
+                  </div>
 
-            <div ref={listEndRef} />
-          </div>
+                  {m.role === 'model' && m.suggestions && m.suggestions.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1.5 max-w-[92%]">
+                      {m.suggestions.map((nav) => (
+                        <button
+                          key={nav.route}
+                          type="button"
+                          onClick={() => handleNavAction(nav)}
+                          className="ui-btn ui-btn-accent px-2.5 py-1 text-[11px]"
+                        >
+                          {isWorldRoute && nav.landmarkId ? (
+                            <Compass className="w-3 h-3 shrink-0" />
+                          ) : (
+                            <ExternalLink className="w-3 h-3 shrink-0" />
+                          )}
+                          <span>
+                            {isWorldRoute && nav.landmarkId
+                              ? `Drive to ${nav.label.split(' (')[0].replace('View ', '')}`
+                              : nav.label}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
 
-          {/* Input Composer */}
-          <form
-            onSubmit={handleSubmit}
-            className="p-3 bg-[#F5E9D4] border-t-2 border-[#26211E] flex items-center gap-2 shrink-0"
-          >
-            <label htmlFor="ai-guide-input" className="sr-only">
-              Ask Sanjaya&apos;s Portfolio Guide a question
-            </label>
-            <input
-              ref={inputRef}
-              id="ai-guide-input"
-              type="text"
-              maxLength={500}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask about Sanjaya, projects, skills..."
-              className="flex-1 min-w-0 px-3 py-2 rounded-xl border-2 border-[#26211E] bg-[#FFF9F0] text-xs sm:text-sm font-bold text-[#26211E] placeholder:text-[#61564E]/70"
-            />
-            <button
-              type="submit"
-              disabled={loading || !input.trim()}
-              aria-label="Send message"
-              className="w-10 h-10 shrink-0 rounded-xl bg-[#EC6D2C] text-[#FFF9F0] border-2 border-[#26211E] shadow-[0_2px_0_#26211E] flex items-center justify-center hover:bg-[#CC5318] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              {loading && (
+                <div
+                  data-testid="ai-typing-indicator"
+                  aria-live="polite"
+                  className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-2xl rounded-bl-sm bg-[#F5E9D4] border border-[#D9C3A3] text-xs font-extrabold text-[#61564E]"
+                >
+                  <span>Thinking</span>
+                  <span className="inline-flex items-center gap-1" aria-hidden="true">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#EC6D2C] animate-bounce [animation-delay:-0.2s]" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#EC6D2C] animate-bounce [animation-delay:-0.1s]" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#EC6D2C] animate-bounce" />
+                  </span>
+                </div>
+              )}
+
+              {errorMsg && (
+                <div
+                  role="alert"
+                  data-testid="ai-error-banner"
+                  className="p-3 rounded-xl bg-[#FFF9F0] border-2 border-[#E65448] text-xs font-bold text-[#26211E] space-y-2"
+                >
+                  <div className="flex items-start gap-2 text-[#E65448]">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{errorMsg}</span>
+                  </div>
+                  {lastFailedPrompt && (
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() => void sendPrompt(lastFailedPrompt, false)}
+                      className="ui-btn ui-btn-secondary px-2.5 py-1 text-[11px]"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>Retry Question</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <div ref={listEndRef} />
+            </div>
+
+            {/* Input Composer */}
+            <form
+              onSubmit={handleSubmit}
+              className="p-3 bg-[#F5E9D4] border-t border-[#D9C3A3] flex items-center gap-2 shrink-0"
             >
-              <Send className="w-4 h-4" />
-            </button>
-          </form>
+              <label htmlFor="ai-guide-input" className="sr-only">
+                Ask Sanjaya&apos;s Portfolio Guide a question
+              </label>
+              <input
+                ref={inputRef}
+                id="ai-guide-input"
+                type="text"
+                maxLength={500}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Ask about Sanjaya, projects, skills..."
+                className="ui-input py-2 px-3 text-xs sm:text-sm"
+              />
+              <button
+                type="submit"
+                disabled={loading || !input.trim()}
+                aria-label="Send message"
+                className="ui-btn ui-btn-primary w-10 h-10 p-0 shrink-0"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </form>
           </div>
         </>
       )}

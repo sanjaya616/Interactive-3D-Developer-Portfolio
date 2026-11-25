@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Award, CheckCircle2, Compass, Lock, Sparkles } from 'lucide-react';
+import { Award, CheckCircle2, Clock, Compass, Lock, Paintbrush, Sparkles } from 'lucide-react';
 import { PortfolioLayout } from '../components/PortfolioLayout';
+import { AnimatedProgress } from '../components/ui/AnimatedProgress';
 import {
   ACHIEVEMENTS_LIST,
   EXPLORER_REWARDS,
@@ -10,6 +11,7 @@ import {
   WORLD_COLLECTIBLES,
   WORLD_LANDMARKS,
 } from '../data/portfolioData';
+import { getAllAchievementsProgress } from '../game/progression';
 import { useAppState } from '../state/AppStateContext';
 import type { CollectibleKind } from '../types/portfolio';
 
@@ -24,6 +26,9 @@ export const AchievementsPage: React.FC = () => {
     collectedFragments,
     collectedSecrets,
     discoveredSecrets,
+    completedChallenges,
+    bestLapSeconds,
+    distanceDrivenMeters,
   } = useAppState();
 
   const [itemFilter, setItemFilter] = useState<'all' | CollectibleKind>('all');
@@ -33,12 +38,28 @@ export const AchievementsPage: React.FC = () => {
     0,
   );
   const maxPoints = ACHIEVEMENTS_LIST.reduce((sum, a) => sum + a.points, 0);
-  const overallPct = Math.round(
-    (unlockedAchievements.length / ACHIEVEMENTS_LIST.length) * 100,
-  );
 
-  const unlockedList = ACHIEVEMENTS_LIST.filter((a) => unlockedAchievements.includes(a.id));
-  const lockedList = ACHIEVEMENTS_LIST.filter((a) => !unlockedAchievements.includes(a.id));
+  const progressItems = getAllAchievementsProgress({
+    unlockedAchievements,
+    discoveredLandmarks,
+    openedProjects,
+    collectedIds,
+    discoveredSecrets,
+    completedChallenges,
+    bestLapSeconds,
+    distanceDrivenMeters,
+  });
+
+  const progressMap = new Map(progressItems.map((p) => [p.achievementId, p]));
+  const unlockedList = ACHIEVEMENTS_LIST.filter(
+    (a) => progressMap.get(a.id)?.status === 'unlocked',
+  );
+  const inProgressList = ACHIEVEMENTS_LIST.filter(
+    (a) => progressMap.get(a.id)?.status === 'in-progress',
+  );
+  const lockedList = ACHIEVEMENTS_LIST.filter(
+    (a) => progressMap.get(a.id)?.status === 'locked',
+  );
 
   const orbTotal = WORLD_COLLECTIBLES.filter((c) => c.kind === 'orb').length;
   const tokenTotal = WORLD_COLLECTIBLES.filter((c) => c.kind === 'token').length;
@@ -53,77 +74,91 @@ export const AchievementsPage: React.FC = () => {
   return (
     <PortfolioLayout
       title="ACHIEVEMENTS & REWARDS"
-      subtitle="Live Exploration Progress · 10 Core Achievements, Orbs, Tokens, Fragments & Secrets"
+      subtitle="Live Exploration Progress · 10 Core Achievements, Garage Skins, Orbs & Secrets"
     >
       {/* Top Progress Metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-        <div className="bg-[#F5E9D4] border-2 border-[#26211E] rounded-2xl p-5 shadow-[0_3px_0_#26211E]">
+        <div className="ui-card-sand p-5">
           <div className="text-xs font-extrabold tracking-wide text-[#61564E]">ACHIEVEMENTS</div>
-          <div className="text-3xl font-extrabold tabular-nums text-[#26211E] mt-1">
+          <div className="text-3xl font-extrabold tabular-nums text-[#26211E] mt-1 mb-2.5">
             {unlockedAchievements.length} / {ACHIEVEMENTS_LIST.length}
           </div>
-          <div className="mt-2 h-2.5 rounded-full bg-[#FFF9F0] border border-[#26211E] overflow-hidden">
-            <div className="h-full bg-[#5E915E] transition-all duration-300" style={{ width: `${overallPct}%` }} />
-          </div>
+          <AnimatedProgress
+            value={unlockedAchievements.length}
+            max={ACHIEVEMENTS_LIST.length}
+            color="sage"
+          />
         </div>
 
-        <div className="bg-[#F5E9D4] border-2 border-[#26211E] rounded-2xl p-5 shadow-[0_3px_0_#26211E]">
+        <div className="ui-card-sand p-5">
           <div className="text-xs font-extrabold tracking-wide text-[#61564E]">EXPLORER SCORE</div>
-          <div className="text-3xl font-extrabold tabular-nums text-[#EC6D2C] mt-1">
+          <div className="text-3xl font-extrabold tabular-nums text-[#EC6D2C] mt-1 mb-2.5">
             {totalPoints} / {maxPoints}
           </div>
-          <div className="text-xs font-bold text-[#61564E] mt-1">Points earned</div>
+          <AnimatedProgress value={totalPoints} max={maxPoints} color="orange" />
         </div>
 
-        <div className="bg-[#F5E9D4] border-2 border-[#26211E] rounded-2xl p-5 shadow-[0_3px_0_#26211E]">
+        <div className="ui-card-sand p-5">
           <div className="text-xs font-extrabold tracking-wide text-[#61564E]">DESTINATIONS</div>
-          <div className="text-3xl font-extrabold tabular-nums text-[#21968B] mt-1">
+          <div className="text-3xl font-extrabold tabular-nums text-[#21968B] mt-1 mb-2.5">
             {discoveredLandmarks.length} / {WORLD_LANDMARKS.length}
           </div>
-          <div className="text-xs font-bold text-[#61564E] mt-1">Zones visited</div>
+          <AnimatedProgress
+            value={discoveredLandmarks.length}
+            max={WORLD_LANDMARKS.length}
+            color="turquoise"
+          />
         </div>
 
-        <div className="bg-[#F5E9D4] border-2 border-[#26211E] rounded-2xl p-5 shadow-[0_3px_0_#26211E]">
+        <div className="ui-card-sand p-5">
           <div className="text-xs font-extrabold tracking-wide text-[#61564E]">PROJECTS OPENED</div>
-          <div className="text-3xl font-extrabold tabular-nums text-[#E65448] mt-1">
+          <div className="text-3xl font-extrabold tabular-nums text-[#E65448] mt-1 mb-2.5">
             {openedProjects.length} / {PORTFOLIO_PROJECTS.length}
           </div>
-          <div className="text-xs font-bold text-[#61564E] mt-1">Inspected builds</div>
+          <AnimatedProgress
+            value={openedProjects.length}
+            max={PORTFOLIO_PROJECTS.length}
+            color="coral"
+          />
         </div>
 
-        <div className="bg-[#F5E9D4] border-2 border-[#26211E] rounded-2xl p-5 shadow-[0_3px_0_#26211E]">
-          <div className="text-xs font-extrabold tracking-wide text-[#61564E]">SKILL ORBS &amp; ITEMS</div>
-          <div className="text-3xl font-extrabold tabular-nums text-[#CC5318] mt-1">
+        <div className="ui-card-sand p-5">
+          <div className="text-xs font-extrabold tracking-wide text-[#61564E]">COLLECTIBLES</div>
+          <div className="text-3xl font-extrabold tabular-nums text-[#CC5318] mt-1 mb-2.5">
             {collectedIds.length} / {WORLD_COLLECTIBLES.length}
           </div>
-          <div className="text-[11px] font-bold text-[#61564E] mt-1">
-            Orbs {collectedOrbs.length}/{orbTotal} · Secrets {discoveredSecrets.length}/{SECRET_LOCATIONS.length}
-          </div>
+          <AnimatedProgress
+            value={collectedIds.length}
+            max={WORLD_COLLECTIBLES.length}
+            color="amber"
+          />
         </div>
       </div>
 
       {/* Collectible Breakdown Counters */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
-        <div className="bg-[#FFF9F0] border-2 border-[#D9C3A3] rounded-xl p-3.5 shadow-[0_3px_0_#E6D3B5]">
+        <div className="ui-card p-3.5">
           <div className="text-[11px] font-extrabold tracking-wide text-[#21968B]">SKILL ORBS</div>
           <div className="text-xl font-extrabold tabular-nums text-[#26211E]">
             {collectedOrbs.length} / {orbTotal}
           </div>
         </div>
-        <div className="bg-[#FFF9F0] border-2 border-[#D9C3A3] rounded-xl p-3.5 shadow-[0_3px_0_#E6D3B5]">
+        <div className="ui-card p-3.5">
           <div className="text-[11px] font-extrabold tracking-wide text-[#CC5318]">HIDDEN TOKENS</div>
           <div className="text-xl font-extrabold tabular-nums text-[#26211E]">
             {collectedTokens.length} / {tokenTotal}
           </div>
         </div>
-        <div className="bg-[#FFF9F0] border-2 border-[#D9C3A3] rounded-xl p-3.5 shadow-[0_3px_0_#E6D3B5]">
+        <div className="ui-card p-3.5">
           <div className="text-[11px] font-extrabold tracking-wide text-[#E65448]">FRAGMENTS</div>
           <div className="text-xl font-extrabold tabular-nums text-[#26211E]">
             {collectedFragments.length} / {fragTotal}
           </div>
         </div>
-        <div className="bg-[#FFF9F0] border-2 border-[#D9C3A3] rounded-xl p-3.5 shadow-[0_3px_0_#E6D3B5]">
-          <div className="text-[11px] font-extrabold tracking-wide text-[#5E915E]">SECRET RELICS</div>
+        <div className="ui-card p-3.5">
+          <div className="text-[11px] font-extrabold tracking-wide text-[#5E915E]">
+            SECRETS ({discoveredSecrets.length}/{SECRET_LOCATIONS.length})
+          </div>
           <div className="text-xl font-extrabold tabular-nums text-[#26211E]">
             {collectedSecrets.length} / {secTotal}
           </div>
@@ -132,9 +167,18 @@ export const AchievementsPage: React.FC = () => {
 
       {/* Milestone Rewards */}
       <section className="mb-10">
-        <div className="flex items-center gap-2 text-xs font-extrabold tracking-wider text-[#EC6D2C] mb-2">
-          <Award className="w-4 h-4" />
-          <span>EXPLORER MILESTONE REWARDS</span>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <div className="flex items-center gap-2 text-xs font-extrabold tracking-wider text-[#EC6D2C]">
+            <Award className="w-4 h-4" />
+            <span>EXPLORER MILESTONE REWARDS</span>
+          </div>
+          <Link
+            to="/garage"
+            className="text-xs font-extrabold text-[#21968B] hover:underline inline-flex items-center gap-1"
+          >
+            <Paintbrush className="w-3.5 h-3.5" />
+            <span>Equip Unlocked Skins in Garage</span>
+          </Link>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {EXPLORER_REWARDS.map((reward) => {
@@ -142,11 +186,7 @@ export const AchievementsPage: React.FC = () => {
             return (
               <div
                 key={reward.id}
-                className={`rounded-2xl p-5 border-2 transition-colors ${
-                  earned
-                    ? 'ui-card bg-[#FFF9F0] border-[#26211E]'
-                    : 'bg-[#F5E9D4]/65 border-[#D9C3A3] opacity-85'
-                }`}
+                className={earned ? 'ui-card-featured p-5' : 'ui-card-sand p-5 opacity-85'}
               >
                 <div className="flex items-center justify-between text-xs font-extrabold">
                   <span className="text-[#61564E]">{reward.unlockRequirement}</span>
@@ -172,8 +212,177 @@ export const AchievementsPage: React.FC = () => {
         </div>
       </section>
 
+      {/* Achievement States: Unlocked, In Progress, Locked */}
+      <div className="space-y-8 mb-10">
+        {/* Unlocked */}
+        <section>
+          <div className="flex items-center gap-2 text-xs font-extrabold tracking-wider text-[#5E915E] mb-1">
+            <CheckCircle2 className="w-4 h-4" />
+            <span>COMPLETED BADGES</span>
+          </div>
+          <h2 className="font-display text-4xl font-bold text-[#26211E] mb-3">
+            UNLOCKED ({unlockedList.length})
+          </h2>
+          {unlockedList.length === 0 ? (
+            <div className="ui-card-sand p-6 text-sm font-semibold text-[#61564E]">
+              No achievements unlocked yet. Drive in the 3D world, visit destinations, open projects, or beat challenges to earn badges.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {unlockedList.map((ach) => {
+                const prog = progressMap.get(ach.id)!;
+                return (
+                  <div
+                    key={ach.id}
+                    className="ui-card-featured border-[#5E915E]! p-5 space-y-3"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-xs font-bold text-[#5E915E]">
+                          UNLOCKED · {ach.category} · <span className="tabular-nums">{ach.points} pts</span>
+                        </div>
+                        <h3 className="font-display text-3xl font-bold text-[#26211E] mt-1">
+                          {ach.title}
+                        </h3>
+                        <p className="text-sm font-semibold text-[#61564E] mt-1">
+                          {ach.description}
+                        </p>
+                      </div>
+                      <CheckCircle2 className="w-6 h-6 text-[#5E915E] shrink-0 mt-1" />
+                    </div>
+                    <AnimatedProgress
+                      value={prog.current}
+                      max={prog.total}
+                      color="sage"
+                      heightClass="h-2"
+                      label="Completed"
+                      valueText={prog.progressLabel}
+                    />
+                    {prog.rewardLabel && (
+                      <Link
+                        to="/garage"
+                        className="inline-flex items-center gap-1.5 text-xs font-extrabold text-[#21968B] hover:underline"
+                      >
+                        <Paintbrush className="w-3.5 h-3.5" />
+                        <span>{prog.rewardLabel} · Equip in Garage</span>
+                      </Link>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* In Progress */}
+        {inProgressList.length > 0 && (
+          <section>
+            <div className="flex items-center gap-2 text-xs font-extrabold tracking-wider text-[#EC6D2C] mb-1">
+              <Clock className="w-4 h-4" />
+              <span>ACTIVE TRACKING</span>
+            </div>
+            <h2 className="font-display text-4xl font-bold text-[#26211E] mb-3">
+              IN PROGRESS ({inProgressList.length})
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {inProgressList.map((ach) => {
+                const prog = progressMap.get(ach.id)!;
+                return (
+                  <div
+                    key={ach.id}
+                    className="ui-card p-5 border-[#EC6D2C]/65! space-y-3"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-xs font-bold text-[#CC5318]">
+                          IN PROGRESS · {ach.category} · <span className="tabular-nums">{ach.points} pts</span>
+                        </div>
+                        <h3 className="font-display text-3xl font-bold text-[#26211E] mt-1">
+                          {ach.title}
+                        </h3>
+                        <p className="text-sm font-semibold text-[#61564E] mt-1">
+                          {ach.description}
+                        </p>
+                      </div>
+                      <span className="px-2 py-0.5 rounded bg-[#FFE08A] border border-[#CBB18D] text-[11px] font-extrabold text-[#26211E] tabular-nums shrink-0">
+                        {prog.pct}%
+                      </span>
+                    </div>
+                    <AnimatedProgress
+                      value={prog.current}
+                      max={prog.total}
+                      color="orange"
+                      heightClass="h-2"
+                      label="Progress"
+                      valueText={prog.progressLabel}
+                    />
+                    {prog.rewardLabel && (
+                      <div className="text-xs font-bold text-[#61564E] flex items-center gap-1.5">
+                        <Paintbrush className="w-3.5 h-3.5 text-[#EC6D2C]" />
+                        <span>Reward: {prog.rewardLabel}</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* Locked */}
+        <section>
+          <div className="flex items-center gap-2 text-xs font-extrabold tracking-wider text-[#61564E] mb-1">
+            <Lock className="w-4 h-4" />
+            <span>NOT YET STARTED</span>
+          </div>
+          <h2 className="font-display text-4xl font-bold text-[#26211E] mb-3">
+            LOCKED ({lockedList.length})
+          </h2>
+          {lockedList.length === 0 && inProgressList.length === 0 ? (
+            <div className="ui-card-featured p-6 text-sm font-extrabold text-[#5E915E]">
+              Every achievement has been unlocked — COMPLETE EXPLORER achieved!
+            </div>
+          ) : lockedList.length === 0 ? (
+            <div className="ui-card-sand p-5 text-sm font-semibold text-[#61564E]">
+              All remaining achievements are already in progress above!
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {lockedList.map((ach) => {
+                const prog = progressMap.get(ach.id)!;
+                return (
+                  <div
+                    key={ach.id}
+                    className="ui-card-sand p-5 opacity-85 space-y-2.5"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-xs font-bold text-[#61564E]">
+                          LOCKED · {ach.category} · <span className="tabular-nums">{ach.points} pts</span>
+                        </div>
+                        <h3 className="font-display text-3xl font-bold text-[#26211E] mt-1">
+                          {ach.title}
+                        </h3>
+                        <p className="text-sm font-semibold text-[#61564E] mt-1">
+                          {ach.description}
+                        </p>
+                      </div>
+                      <Lock className="w-5 h-5 text-[#61564E] shrink-0 mt-1" />
+                    </div>
+                    <div className="text-[11px] font-bold text-[#61564E] flex flex-wrap items-center justify-between gap-2 pt-1 border-t ui-divider">
+                      <span className="tabular-nums">{prog.progressLabel}</span>
+                      {prog.rewardLabel && <span>{prog.rewardLabel}</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
+
       {/* Collectible Checklist with Category Filter */}
-      <section className="mb-10 ui-card bg-[#FFF9F0] rounded-2xl p-6">
+      <section className="ui-card p-6">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
             <div className="text-xs font-extrabold tracking-wider text-[#CC5318]">
@@ -188,19 +397,16 @@ export const AchievementsPage: React.FC = () => {
               <button
                 key={k}
                 type="button"
+                aria-pressed={itemFilter === k}
                 onClick={() => setItemFilter(k)}
-                className={`px-3 py-1.5 rounded-lg border text-xs font-extrabold capitalize transition-colors cursor-pointer ${
-                  itemFilter === k
-                    ? 'bg-[#26211E] text-[#FFF9F0] border-[#26211E]'
-                    : 'bg-[#F5E9D4] text-[#26211E] border-[#D9C3A3] hover:border-[#26211E] hover:bg-[#E6D3B5]'
-                }`}
+                className="ui-filter-chip capitalize"
               >
                 {k === 'all' ? 'All' : `${k}s`}
               </button>
             ))}
             <Link
               to="/?autostart=1"
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-[#EC6D2C] text-[#FFF9F0] border border-[#26211E] text-xs font-extrabold hover:bg-[#CC5318] transition-colors"
+              className="ui-btn ui-btn-primary px-4 py-2 text-xs"
             >
               <Compass className="w-3.5 h-3.5" />
               <span>Hunt in 3D World</span>
@@ -214,7 +420,7 @@ export const AchievementsPage: React.FC = () => {
             return (
               <div
                 key={item.id}
-                className={`p-3 rounded-xl border-2 flex items-center gap-2.5 transition-colors ${
+                className={`p-3 rounded-xl border flex items-center gap-2.5 transition-colors ${
                   collected
                     ? 'bg-[#F5E9D4] border-[#26211E]'
                     : 'bg-[#FFF9F0] border-[#D9C3A3] opacity-80'
@@ -238,75 +444,6 @@ export const AchievementsPage: React.FC = () => {
           })}
         </div>
       </section>
-
-      {/* Unlocked vs Locked Achievements */}
-      <div className="space-y-8">
-        <section>
-          <h2 className="font-display text-4xl font-bold text-[#26211E] mb-3">
-            UNLOCKED ACHIEVEMENTS ({unlockedList.length})
-          </h2>
-          {unlockedList.length === 0 ? (
-            <div className="p-6 rounded-2xl bg-[#F5E9D4]/65 border-2 border-[#D9C3A3] text-sm font-semibold text-[#61564E]">
-              No achievements unlocked yet. Drive in the 3D world, visit destinations, open projects, or beat challenges to earn badges.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {unlockedList.map((ach) => (
-                <div
-                  key={ach.id}
-                  className="ui-card ui-card-interactive rounded-2xl p-5 bg-[#FFF9F0] flex items-start justify-between gap-4"
-                >
-                  <div>
-                    <div className="text-xs font-bold text-[#61564E]">
-                      {ach.category} · <span className="tabular-nums">{ach.points} pts</span>
-                    </div>
-                    <h3 className="font-display text-3xl font-bold text-[#26211E] mt-1">
-                      {ach.title}
-                    </h3>
-                    <p className="text-sm font-semibold text-[#61564E] mt-1">
-                      {ach.description}
-                    </p>
-                  </div>
-                  <CheckCircle2 className="w-6 h-6 text-[#5E915E] shrink-0 mt-1" />
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section>
-          <h2 className="font-display text-4xl font-bold text-[#26211E] mb-3">
-            LOCKED ACHIEVEMENTS ({lockedList.length})
-          </h2>
-          {lockedList.length === 0 ? (
-            <div className="p-6 rounded-2xl bg-[#FFF9F0] border-2 border-[#26211E] text-sm font-extrabold text-[#5E915E]">
-              Every achievement has been unlocked — COMPLETE EXPLORER achieved!
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {lockedList.map((ach) => (
-                <div
-                  key={ach.id}
-                  className="rounded-2xl p-5 border-2 border-[#D9C3A3] bg-[#F5E9D4]/55 opacity-85 flex items-start justify-between gap-4"
-                >
-                  <div>
-                    <div className="text-xs font-bold text-[#61564E]">
-                      {ach.category} · <span className="tabular-nums">{ach.points} pts</span>
-                    </div>
-                    <h3 className="font-display text-3xl font-bold text-[#26211E] mt-1">
-                      {ach.title}
-                    </h3>
-                    <p className="text-sm font-semibold text-[#61564E] mt-1">
-                      {ach.description}
-                    </p>
-                  </div>
-                  <Lock className="w-5 h-5 text-[#61564E] shrink-0 mt-1" />
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
     </PortfolioLayout>
   );
 };

@@ -415,10 +415,16 @@ class SoundEngine {
   ): void {
     if (!this.enabled || !this.engineOsc || !this.engineGain || !this.engineCtx) return;
     const now = this.engineCtx.currentTime;
-    const weatherWindBase = weatherMode === 'rain' ? 0.042 : weatherMode === 'fog' ? 0.025 : 0.016;
+    const weatherWindBase =
+      weatherMode === 'rain' ? 0.048 : weatherMode === 'fog' ? 0.024 : weatherMode === 'night' ? 0.014 : 0.016;
 
     if (this.windFilter) {
-      this.windFilter.frequency.setTargetAtTime(weatherMode === 'rain' ? 880 : 380, now, 0.25);
+      this.windFilter.frequency.setTargetAtTime(
+        weatherMode === 'rain' ? 1280 : weatherMode === 'fog' ? 320 : 380,
+        now,
+        0.35,
+      );
+      this.windFilter.Q.setTargetAtTime(weatherMode === 'rain' ? 0.65 : 1.1, now, 0.35);
     }
 
     if (!isPlaying) {
@@ -427,7 +433,7 @@ class SoundEngine {
       this.boostGain?.gain.setTargetAtTime(0, now, 0.08);
       this.brakeGain?.gain.setTargetAtTime(0, now, 0.08);
       this.driftGain?.gain.setTargetAtTime(0, now, 0.08);
-      this.ambientGain?.gain.setTargetAtTime(weatherWindBase, now, 0.2);
+      this.ambientGain?.gain.setTargetAtTime(weatherWindBase, now, 0.25);
       return;
     }
 

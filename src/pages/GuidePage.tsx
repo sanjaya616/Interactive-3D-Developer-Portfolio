@@ -185,8 +185,8 @@ export const GuidePage: React.FC = () => {
 
       {/* Detailed Control Reference Tables */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        <div className="lg:col-span-7 bg-[#FFF9F0] border-2 border-[#26211E] rounded-2xl overflow-hidden shadow-[0_6px_0_#26211E]">
-          <div className="px-5 py-3 bg-[#F5E9D4] border-b-2 border-[#26211E] text-xs font-extrabold text-[#26211E]">
+        <div className="lg:col-span-7 ui-card overflow-hidden">
+          <div className="px-5 py-3 bg-[#F5E9D4] border-b border-[#D9C3A3] text-xs font-extrabold text-[#26211E]">
             DESKTOP KEYBOARD REFERENCE
           </div>
           <table className="w-full text-left border-collapse">
@@ -204,8 +204,8 @@ export const GuidePage: React.FC = () => {
         </div>
 
         <aside className="lg:col-span-5 space-y-5">
-          <div className="bg-[#FFF9F0] border-2 border-[#26211E] rounded-2xl overflow-hidden shadow-[0_6px_0_#26211E]">
-            <div className="px-5 py-3 bg-[#F5E9D4] border-b-2 border-[#26211E] text-xs font-extrabold text-[#26211E]">
+          <div className="ui-card overflow-hidden">
+            <div className="px-5 py-3 bg-[#F5E9D4] border-b border-[#D9C3A3] text-xs font-extrabold text-[#26211E]">
               GAMEPAD CONTROLLER REFERENCE
             </div>
             <table className="w-full text-left border-collapse">
@@ -220,7 +220,7 @@ export const GuidePage: React.FC = () => {
             </table>
           </div>
 
-          <div className="bg-[#F5E9D4] border-2 border-[#26211E] rounded-2xl p-6 shadow-[0_6px_0_#26211E]">
+          <div className="ui-card-featured bg-[#F5E9D4]! p-6">
             <h2 className="font-display text-3xl font-bold text-[#26211E]">
               READY TO DRIVE?
             </h2>
@@ -229,7 +229,7 @@ export const GuidePage: React.FC = () => {
             </p>
             <Link
               to="/?autostart=1"
-              className="mt-4 w-full py-3 rounded-xl bg-[#EC6D2C] text-[#FFF9F0] border-2 border-[#26211E] shadow-[0_3px_0_#26211E] text-sm font-extrabold flex items-center justify-center gap-2 hover:bg-[#CC5318] transition-colors"
+              className="ui-btn ui-btn-primary mt-4 w-full py-3 text-sm"
             >
               <Compass className="w-4 h-4" />
               <span>Launch 3D World</span>

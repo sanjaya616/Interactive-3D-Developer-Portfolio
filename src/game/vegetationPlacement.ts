@@ -144,10 +144,15 @@ const ROAD_SPOKE_SEGMENTS: readonly [number, number, number, number, number][] =
   // Lookout Hill sloped ramp road
   [0, -37, 0, -64, 3.0],
   // Hidden Pine Trail gravel route
-  [-34, -38, -28, -50, 1.85],
-  [-28, -50, -22, -58, 1.85],
-  [-22, -58, -13, -66, 1.85],
-  [-13, -66, -6, -70, 1.85],
+  [-34, -38, -28, -50, 1.95],
+  [-28, -50, -22, -58, 1.95],
+  [-22, -58, -13, -66, 1.95],
+  [-13, -66, -6, -70, 1.95],
+  // South Cove Footbridge gravel paths
+  [-38, 48, -34, 56, 2.15],
+  [-34, 56, -29.4, 62, 2.15],
+  [-6.6, 62, -3, 55, 2.15],
+  [-3, 55, 0, 46, 2.15],
 ];
 
 const EXTRA_PROP_EXCLUSIONS: readonly [number, number, number][] = [
@@ -161,6 +166,7 @@ const EXTRA_PROP_EXCLUSIONS: readonly [number, number, number][] = [
   [42, -60, 2.5],
   [53, -66, 2.5],
   [-45, 8, 2.5],
+  [-31, 59, 2.4],
   [-11.6, -7, 2.8],
   [11.6, -6, 2.8],
   [-34.6, 43, 2.8],
@@ -221,9 +227,12 @@ export function isClearForVegetation(
   if (Math.abs(distPaddock - 18) < 3.35 + extraRadius) return false;
   if (options.isTreeOrShrub && distPaddock < 22.6 + extraRadius) return false;
 
-  // Emerald Lagoon Bridge + North/South approach ramps
-  if (Math.abs(x - 40) < 4.5 + extraRadius && z >= -34 && z <= -10) return false;
+  // Emerald Lagoon Bridge + North/South approach wingwalls + South Cove Footbridge
+  if (Math.abs(x - 40) < 5.0 + extraRadius && z >= -34.5 && z <= -9.5) return false;
+  if (Math.abs(z - 62) < 2.6 + extraRadius && x >= -31 && x <= -5) return false;
   if (computeBridgeSurfaceY(x, z) !== null) return false;
+  // Lookout Hill ramp guardrails
+  if (Math.abs(x) < 3.8 + extraRadius && z >= -60.5 && z <= -37.5) return false;
 
   // West Ridge Vaulted Tunnel & portals
   if (Math.abs(x + 42) < 6.8 + extraRadius && z >= -15 && z <= 7) return false;

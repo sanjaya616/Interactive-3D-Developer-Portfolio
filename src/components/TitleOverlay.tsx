@@ -26,7 +26,7 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
         <button
           type="button"
           onClick={onOpenMenu}
-          className="pointer-events-auto inline-flex items-center gap-2 px-3.5 sm:px-4 py-2.5 rounded-xl bg-[#FFF9F0]/95 border-2 border-[#26211E] text-[#26211E] text-xs sm:text-sm font-extrabold shadow-[0_3px_0_#26211E] hover:bg-[#F5E9D4] active:translate-y-0.5 transition-all cursor-pointer"
+          className="pointer-events-auto ui-hud-panel ui-btn px-3.5 sm:px-4 py-2.5 text-[#26211E] text-xs sm:text-sm hover:bg-[#F5E9D4]"
         >
           <Menu className="w-4 h-4 text-[#EC6D2C]" />
           <span>Portfolio Pages</span>
@@ -34,7 +34,7 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
 
         <div className="flex items-center gap-2 pointer-events-auto">
           {authUser ? (
-            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-[#FFF9F0]/95 border-2 border-[#26211E] text-[#26211E] text-xs font-extrabold shadow-[0_3px_0_#26211E]">
+            <div className="ui-hud-panel inline-flex items-center gap-2 px-3 py-2 text-[#26211E] text-xs font-extrabold">
               <Cloud
                 className={`w-3.5 h-3.5 shrink-0 ${
                   cloudSyncStatus === 'error' ? 'text-[#E65448]' : 'text-[#21968B]'
@@ -57,7 +57,7 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
               type="button"
               disabled={authBusy}
               onClick={() => void signInGoogle()}
-              className="inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-2.5 rounded-xl bg-[#FFF9F0]/95 border-2 border-[#26211E] text-[#26211E] text-xs sm:text-sm font-extrabold shadow-[0_3px_0_#26211E] hover:bg-[#F5E9D4] active:translate-y-0.5 transition-all cursor-pointer"
+              className="ui-hud-panel ui-btn px-3 sm:px-3.5 py-2.5 text-[#26211E] text-xs sm:text-sm hover:bg-[#F5E9D4]"
             >
               <LogIn className="w-4 h-4 text-[#21968B]" />
               <span>{authBusy ? 'Signing in...' : 'Google Sign In'}</span>
@@ -68,7 +68,7 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
             type="button"
             onClick={onToggleAudio}
             aria-label={audioEnabled ? 'Mute audio' : 'Enable audio'}
-            className="inline-flex items-center gap-2 px-3.5 sm:px-4 py-2.5 rounded-xl bg-[#FFF9F0]/95 border-2 border-[#26211E] text-[#26211E] text-xs sm:text-sm font-extrabold shadow-[0_3px_0_#26211E] hover:bg-[#F5E9D4] active:translate-y-0.5 transition-all cursor-pointer"
+            className="ui-hud-panel ui-btn px-3.5 sm:px-4 py-2.5 text-[#26211E] text-xs sm:text-sm hover:bg-[#F5E9D4]"
           >
             {audioEnabled ? (
               <Volume2 className="w-4 h-4 text-[#21968B]" />
@@ -81,9 +81,9 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
       </div>
 
       {/* Left-Third Hero Card leaving wide negative space for the 3D live camera orbit */}
-      <div className="my-auto max-w-[430px] pointer-events-auto bg-[#FFF9F0]/96 border-2 border-[#26211E] rounded-2xl p-6 sm:p-8 shadow-[0_8px_0_#26211E]">
+      <div className="my-auto max-w-[430px] pointer-events-auto ui-modal-panel p-6 sm:p-8">
         <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 rounded-xl bg-[#EC6D2C] border-2 border-[#26211E] flex items-center justify-center shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-[#EC6D2C] border-[1.5px] border-[#26211E] flex items-center justify-center shrink-0 shadow-[0_2px_0_#26211E]">
             <Compass className="w-5 h-5 text-[#FFF9F0]" />
           </div>
           <div>
@@ -108,7 +108,7 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
             type="button"
             data-start="true"
             onClick={onStart}
-            className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-[#EC6D2C] text-[#FFF9F0] border-2 border-[#26211E] text-sm sm:text-base font-extrabold shadow-[0_4px_0_#26211E] hover:bg-[#CC5318] active:translate-y-0.5 transition-all cursor-pointer"
+            className="w-full ui-btn ui-btn-primary px-6 py-3 text-sm sm:text-base"
           >
             <Play className="w-4 h-4 fill-current" />
             <span>Start Exploring</span>
@@ -117,7 +117,7 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
           <div className="grid grid-cols-2 gap-2.5">
             <Link
               to="/classic"
-              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#21968B] text-[#FFF9F0] border-2 border-[#26211E] text-xs sm:text-sm font-extrabold shadow-[0_3px_0_#26211E] hover:brightness-105 transition-all"
+              className="ui-btn ui-btn-accent px-4 py-2.5 text-xs sm:text-sm"
             >
               <BookOpen className="w-4 h-4" />
               <span>Classic Mode</span>
@@ -126,7 +126,7 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
             <button
               type="button"
               onClick={onOpenMenu}
-              className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#F5E9D4] text-[#26211E] border-2 border-[#26211E] text-xs sm:text-sm font-extrabold shadow-[0_3px_0_#26211E] hover:bg-[#E6D3B5] transition-colors cursor-pointer"
+              className="ui-btn ui-btn-secondary px-4 py-2.5 text-xs sm:text-sm border-[#26211E]"
             >
               <span>All Pages</span>
             </button>
@@ -136,7 +136,7 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({
 
       {/* Bottom Single Control Strip */}
       <div className="flex justify-center">
-        <div className="bg-[#26211E]/92 text-[#FFF9F0] px-4 py-2 rounded-xl text-[11px] sm:text-xs font-semibold tracking-wide text-center">
+        <div className="ui-hud-panel-dark px-4 py-2 text-[11px] sm:text-xs font-semibold tracking-wide text-center">
           WASD / Touch / Gamepad Drive · Drag Rotate · Scroll Zoom · Shift Boost · Space Jump · Enter Open
         </div>
       </div>

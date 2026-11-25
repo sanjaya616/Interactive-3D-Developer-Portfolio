@@ -25,13 +25,13 @@ export const LeaderboardPage: React.FC = () => {
     >
       {(bestLapSeconds !== null || lastLapSeconds !== null) && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-          <div className="ui-card p-4 rounded-2xl bg-[#FFF9F0]">
+          <div className="ui-card p-4">
             <div className="text-xs font-extrabold tracking-wide text-[#61564E]">YOUR PERSONAL BEST LAP</div>
             <div className="text-2xl font-extrabold text-[#EC6D2C] tabular-nums mt-0.5">
               {bestLapSeconds !== null ? `${bestLapSeconds.toFixed(2)} s` : '—'}
             </div>
           </div>
-          <div className="ui-card p-4 rounded-2xl bg-[#FFF9F0]">
+          <div className="ui-card p-4">
             <div className="text-xs font-extrabold tracking-wide text-[#61564E]">LAST COMPLETED LAP</div>
             <div className="text-2xl font-extrabold text-[#26211E] tabular-nums mt-0.5">
               {lastLapSeconds !== null ? `${lastLapSeconds.toFixed(2)} s` : '—'}
@@ -43,18 +43,18 @@ export const LeaderboardPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         <div className="lg:col-span-8 space-y-4">
           {leaderboardError && (
-            <div className="p-4 rounded-2xl bg-[#FFF9F0] border-2 border-[#E65448] text-sm font-bold text-[#E65448]">
+            <div className="ui-card border-[#E65448]! p-4 text-sm font-bold text-[#E65448]">
               Unable to load online leaderboard: {leaderboardError}
             </div>
           )}
 
           {leaderboardLoading ? (
-            <div className="ui-card bg-[#FFF9F0] rounded-2xl p-8 text-center text-sm font-bold text-[#61564E]">
+            <div className="ui-card p-8 text-center text-sm font-bold text-[#61564E]">
               Loading verified global standings...
             </div>
           ) : leaderboard.length === 0 ? (
-            <div className="bg-[#F5E9D4]/80 border-2 border-[#26211E] rounded-2xl p-8 shadow-[0_5px_0_#26211E] text-center">
-              <div className="w-12 h-12 mx-auto rounded-2xl bg-[#FFF9F0] border-2 border-[#26211E] flex items-center justify-center text-[#EC6D2C]">
+            <div className="ui-card-sand p-8 text-center">
+              <div className="w-12 h-12 mx-auto rounded-2xl bg-[#FFF9F0] border border-[#D9C3A3] flex items-center justify-center text-[#EC6D2C]">
                 <Flag className="w-6 h-6" />
               </div>
               <h2 className="font-display text-4xl font-bold text-[#26211E] mt-3">
@@ -65,22 +65,22 @@ export const LeaderboardPage: React.FC = () => {
               </p>
               <Link
                 to="/?autostart=1"
-                className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#EC6D2C] text-[#FFF9F0] border-2 border-[#26211E] shadow-[0_3px_0_#26211E] text-xs font-extrabold hover:bg-[#CC5318] transition-colors"
+                className="ui-btn ui-btn-primary mt-5 px-5 py-2.5 text-xs"
               >
                 <Compass className="w-4 h-4" />
                 <span>Race at The Paddock</span>
               </Link>
             </div>
           ) : (
-            <div className="ui-card bg-[#FFF9F0] rounded-2xl overflow-hidden">
-              <div className="px-5 py-3 bg-[#F5E9D4] border-b-2 border-[#26211E] flex flex-wrap items-center justify-between gap-2">
+            <div className="ui-card overflow-hidden">
+              <div className="px-5 py-3 bg-[#F5E9D4] border-b border-[#D9C3A3] flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-extrabold text-[#26211E]">
                   GLOBAL STANDINGS ({leaderboard.length})
                 </span>
                 <button
                   type="button"
                   onClick={() => void refreshGlobalLeaderboard()}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#FFF9F0] border border-[#D9C3A3] text-[11px] font-extrabold text-[#26211E] hover:border-[#26211E] hover:bg-[#E6D3B5] transition-colors cursor-pointer"
+                  className="ui-btn ui-btn-outline px-3 py-1 text-[11px]"
                 >
                   <RefreshCw className="w-3 h-3" />
                   <span>Refresh Standings</span>
@@ -89,7 +89,7 @@ export const LeaderboardPage: React.FC = () => {
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="bg-[#F5E9D4]/55 border-b-2 border-[#26211E] text-xs font-extrabold text-[#26211E]">
+                    <tr className="bg-[#F5E9D4]/55 border-b border-[#D9C3A3] text-xs font-extrabold text-[#26211E]">
                       <th className="py-3 px-4 sm:px-5">RANK</th>
                       <th className="py-3 px-4 sm:px-5">PLAYER</th>
                       <th className="py-3 px-4 sm:px-5">VEHICLE</th>
@@ -143,7 +143,7 @@ export const LeaderboardPage: React.FC = () => {
         </div>
 
         <aside className="lg:col-span-4 space-y-4">
-          <div className="bg-[#F5E9D4] border-2 border-[#26211E] rounded-2xl p-6 shadow-[0_5px_0_#26211E]">
+          <div className="ui-card-featured bg-[#F5E9D4]! p-6">
             <div className="flex items-center gap-2 text-[#21968B]">
               <ShieldCheck className="w-5 h-5" />
               <span className="text-xs font-extrabold tracking-wider">ANTI-CHEAT TELEMETRY</span>
@@ -156,7 +156,7 @@ export const LeaderboardPage: React.FC = () => {
             </p>
 
             {authUser ? (
-              <div className="mt-4 p-3.5 rounded-xl bg-[#FFF9F0] border-2 border-[#D9C3A3]">
+              <div className="ui-card mt-4 p-3.5">
                 <div className="text-[11px] font-extrabold text-[#21968B]">READY TO COMPETE</div>
                 <div className="text-sm font-extrabold text-[#26211E] mt-0.5">
                   Driver: {playerDisplayName}
@@ -166,7 +166,7 @@ export const LeaderboardPage: React.FC = () => {
                 </p>
               </div>
             ) : (
-              <div className="mt-4 p-3.5 rounded-xl bg-[#FFF9F0] border-2 border-[#D9C3A3] space-y-2.5">
+              <div className="ui-card mt-4 p-3.5 space-y-2.5">
                 <div className="text-xs font-bold text-[#26211E]">
                   Explore &amp; race as a guest anytime, or sign in with Google to publish verified times globally.
                 </div>
@@ -174,7 +174,7 @@ export const LeaderboardPage: React.FC = () => {
                   type="button"
                   disabled={authBusy}
                   onClick={() => void signInGoogle()}
-                  className="w-full py-2.5 rounded-xl bg-[#21968B] text-[#FFF9F0] border-2 border-[#26211E] shadow-[0_3px_0_#26211E] text-xs font-extrabold inline-flex items-center justify-center gap-1.5 hover:brightness-105 transition-all cursor-pointer"
+                  className="ui-btn ui-btn-accent w-full py-2.5 text-xs"
                 >
                   <LogIn className="w-4 h-4" />
                   <span>{authBusy ? 'Signing in...' : 'Sign in with Google'}</span>
@@ -184,7 +184,7 @@ export const LeaderboardPage: React.FC = () => {
 
             <Link
               to="/?autostart=1"
-              className="mt-4 w-full py-2.5 rounded-xl bg-[#EC6D2C] text-[#FFF9F0] border-2 border-[#26211E] shadow-[0_3px_0_#26211E] text-xs font-extrabold inline-flex items-center justify-center gap-2 hover:bg-[#CC5318] transition-colors"
+              className="ui-btn ui-btn-primary mt-4 w-full py-2.5 text-xs"
             >
               <Trophy className="w-4 h-4" />
               <span>Enter Paddock Circuit</span>

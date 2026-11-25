@@ -93,7 +93,7 @@ export const AboutPage: React.FC = () => {
             ))}
           </section>
 
-          <section className="about-stagger bg-[#F5E9D4]/75 border-2 border-[#26211E] rounded-2xl p-5 space-y-2">
+          <section className="about-stagger ui-card-sand p-5 space-y-2">
             <div className="flex items-center gap-2 text-xs font-extrabold tracking-wider text-[#CC5318]">
               <Briefcase className="w-4 h-4" />
               <span>FREELANCE BACKGROUND · {DEVELOPER_PROFILE.freelancePeriod}</span>
@@ -115,7 +115,7 @@ export const AboutPage: React.FC = () => {
               {DEVELOPER_PROFILE.personalInterests.map((interest) => (
                 <div
                   key={interest}
-                  className="px-4 py-2.5 rounded-xl bg-[#FFF9F0] border border-[#D9C3A3] text-sm font-extrabold text-[#26211E]"
+                  className="ui-card px-4 py-2.5 text-sm font-extrabold text-[#26211E]"
                 >
                   {interest}
                 </div>
@@ -126,21 +126,21 @@ export const AboutPage: React.FC = () => {
           <div className="about-stagger pt-2 flex flex-wrap gap-3">
             <Link
               to="/?autostart=1"
-              className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#21968B] text-[#FFF9F0] border-2 border-[#26211E] shadow-[0_3px_0_#26211E] text-sm font-extrabold hover:opacity-95 transition-all duration-150 hover:-translate-y-0.5"
+              className="ui-btn ui-btn-accent px-5 py-3 text-sm"
             >
               <Compass className="w-4 h-4" />
               <span>Explore 3D World</span>
             </Link>
             <Link
               to="/projects"
-              className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#EC6D2C] text-[#FFF9F0] border-2 border-[#26211E] shadow-[0_3px_0_#26211E] text-sm font-extrabold hover:bg-[#CC5318] transition-all duration-150 hover:-translate-y-0.5"
+              className="ui-btn ui-btn-primary px-5 py-3 text-sm"
             >
               <span>Explore {projectCounts.total} Projects</span>
               <ArrowRight className="w-4 h-4" />
             </Link>
             <Link
               to="/skills"
-              className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#F5E9D4] text-[#26211E] border-2 border-[#26211E] text-sm font-extrabold hover:bg-[#E6D3B5] transition-colors duration-150"
+              className="ui-btn ui-btn-secondary px-5 py-3 text-sm border-[#26211E]"
             >
               <span>View {SKILLS_CATALOG.length} Skills</span>
             </Link>
@@ -149,7 +149,7 @@ export const AboutPage: React.FC = () => {
 
         {/* Right: Verified Credentials & Direct Links */}
         <aside className="lg:col-span-5 space-y-5">
-          <div className="about-stagger bg-[#F5E9D4] border-2 border-[#26211E] rounded-2xl p-6 shadow-[0_6px_0_#26211E]">
+          <div className="about-stagger ui-card-featured bg-[#F5E9D4]! p-6">
             <div className="flex items-center gap-2 text-xs font-extrabold text-[#61564E]">
               <Building2 className="w-4 h-4 text-[#EC6D2C]" />
               <span>VERIFIED DETAILS</span>
@@ -158,7 +158,7 @@ export const AboutPage: React.FC = () => {
               OVERVIEW
             </h2>
 
-            <dl className="mt-4 space-y-3 text-sm border-t border-[#E6D3B5] pt-4">
+            <dl className="mt-4 space-y-3 text-sm border-t ui-divider pt-4">
               <div className="flex justify-between gap-4">
                 <dt className="font-bold text-[#61564E]">Institution</dt>
                 <dd className="font-extrabold text-[#26211E] text-right">
@@ -191,14 +191,14 @@ export const AboutPage: React.FC = () => {
               </div>
             </dl>
 
-            <div className="mt-5 pt-4 border-t border-[#E6D3B5] grid grid-cols-2 gap-3">
-              <div className="bg-[#FFF9F0] border border-[#D9C3A3] rounded-xl p-3.5">
+            <div className="mt-5 pt-4 border-t ui-divider grid grid-cols-2 gap-3">
+              <div className="ui-card p-3.5">
                 <div className="text-2xl font-extrabold tabular-nums text-[#26211E]">
                   {projectCounts.total}
                 </div>
                 <div className="text-xs font-bold text-[#61564E]">Documented Projects</div>
               </div>
-              <div className="bg-[#FFF9F0] border border-[#D9C3A3] rounded-xl p-3.5">
+              <div className="ui-card p-3.5">
                 <div className="text-2xl font-extrabold tabular-nums text-[#26211E]">
                   {SKILLS_CATALOG.length}
                 </div>
@@ -230,7 +230,7 @@ export const AboutPage: React.FC = () => {
                 href={DEVELOPER_PROFILE.githubUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#26211E] text-[#FFF9F0] text-xs font-extrabold hover:opacity-90 transition-opacity"
+                className="ui-btn ui-btn-dark px-3.5 py-2 text-xs"
               >
                 <span>GitHub</span>
                 <ExternalLink className="w-3.5 h-3.5" />
@@ -239,7 +239,7 @@ export const AboutPage: React.FC = () => {
                 href={DEVELOPER_PROFILE.linkedinUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#21968B] text-[#FFF9F0] border-2 border-[#26211E] text-xs font-extrabold hover:opacity-90 transition-opacity"
+                className="ui-btn ui-btn-accent px-3.5 py-2 text-xs"
               >
                 <span>LinkedIn</span>
                 <ExternalLink className="w-3.5 h-3.5" />

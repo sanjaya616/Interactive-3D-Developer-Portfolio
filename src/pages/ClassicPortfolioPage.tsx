@@ -33,50 +33,32 @@ export const ClassicPortfolioPage: React.FC = () => {
       {/* Quick Section Jump Navigation */}
       <nav
         aria-label="Classic portfolio sections"
-        className="mb-8 p-4 rounded-2xl bg-[#F5E9D4] border-2 border-[#26211E] flex flex-wrap items-center justify-between gap-3"
+        className="mb-8 ui-card-sand p-4 flex flex-wrap items-center justify-between gap-3"
       >
         <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm font-extrabold">
-          <a
-            href="#classic-about"
-            className="px-3 py-1.5 rounded-lg bg-[#FFF9F0] border border-[#26211E] hover:bg-[#E6D3B5] transition-colors"
-          >
+          <a href="#classic-about" className="ui-filter-chip bg-[#FFF9F0]!">
             About
           </a>
-          <a
-            href="#classic-projects"
-            className="px-3 py-1.5 rounded-lg bg-[#FFF9F0] border border-[#26211E] hover:bg-[#E6D3B5] transition-colors"
-          >
+          <a href="#classic-projects" className="ui-filter-chip bg-[#FFF9F0]!">
             Projects ({PORTFOLIO_PROJECTS.length})
           </a>
-          <a
-            href="#classic-skills"
-            className="px-3 py-1.5 rounded-lg bg-[#FFF9F0] border border-[#26211E] hover:bg-[#E6D3B5] transition-colors"
-          >
+          <a href="#classic-skills" className="ui-filter-chip bg-[#FFF9F0]!">
             Skills ({SKILLS_CATALOG.length})
           </a>
-          <a
-            href="#classic-journey"
-            className="px-3 py-1.5 rounded-lg bg-[#FFF9F0] border border-[#26211E] hover:bg-[#E6D3B5] transition-colors"
-          >
+          <a href="#classic-journey" className="ui-filter-chip bg-[#FFF9F0]!">
             Journey
           </a>
-          <a
-            href="#classic-services"
-            className="px-3 py-1.5 rounded-lg bg-[#FFF9F0] border border-[#26211E] hover:bg-[#E6D3B5] transition-colors"
-          >
+          <a href="#classic-services" className="ui-filter-chip bg-[#FFF9F0]!">
             Services ({SERVICES_LIST.length})
           </a>
-          <a
-            href="#classic-contact"
-            className="px-3 py-1.5 rounded-lg bg-[#FFF9F0] border border-[#26211E] hover:bg-[#E6D3B5] transition-colors"
-          >
+          <a href="#classic-contact" className="ui-filter-chip bg-[#FFF9F0]!">
             Contact
           </a>
         </div>
 
         <Link
           to="/?autostart=1"
-          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#21968B] text-[#FFF9F0] border border-[#26211E] text-xs font-extrabold hover:opacity-95 transition-opacity"
+          className="ui-btn ui-btn-accent px-3.5 py-1.5 text-xs"
         >
           <Compass className="w-3.5 h-3.5" />
           <span>Drive 3D World</span>
@@ -189,15 +171,9 @@ export const ClassicPortfolioPage: React.FC = () => {
                   {project.description}
                 </p>
 
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {project.technologies.map((tech) => (
-                    <span
-                      key={tech}
-                      className="px-2 py-0.5 rounded bg-[#F5E9D4] text-[11px] font-bold text-[#26211E]"
-                    >
-                      {tech}
-                    </span>
-                  ))}
+                <div className="mt-3 text-xs font-extrabold text-[#26211E]">
+                  <span className="text-[#61564E] font-bold mr-1.5">Stack:</span>
+                  {project.technologies.join(' · ')}
                 </div>
               </div>
 
@@ -256,7 +232,7 @@ export const ClassicPortfolioPage: React.FC = () => {
                   {items.map((skill) => (
                     <div
                       key={skill.id}
-                      className="p-3 rounded-xl bg-[#F5E9D4]/70 border border-[#D9C3A3]"
+                      className="ui-card-sand p-3"
                     >
                       <div className="text-sm font-extrabold text-[#26211E]">{skill.name}</div>
                       <div className="text-xs font-semibold text-[#61564E] mt-0.5">
@@ -290,7 +266,7 @@ export const ClassicPortfolioPage: React.FC = () => {
           </h2>
           <ol className="space-y-4">
             {JOURNEY_MILESTONES.map((m) => (
-              <li key={m.id} className="p-3.5 rounded-xl bg-[#F5E9D4]/65 border border-[#D9C3A3]">
+              <li key={m.id} className="ui-card-sand p-3.5">
                 <div className="flex items-center justify-between text-xs font-extrabold text-[#61564E]">
                   <span>{m.organization}</span>
                   <span>{m.period}</span>
@@ -321,7 +297,7 @@ export const ClassicPortfolioPage: React.FC = () => {
           </h2>
           <div className="space-y-3">
             {SERVICES_LIST.map((srv) => (
-              <div key={srv.id} className="p-3.5 rounded-xl bg-[#F5E9D4]/65 border border-[#D9C3A3]">
+              <div key={srv.id} className="ui-card-sand p-3.5">
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-base font-extrabold text-[#26211E]">
                     {srv.number}. {srv.title}
@@ -341,7 +317,7 @@ export const ClassicPortfolioPage: React.FC = () => {
       <section
         id="classic-contact"
         aria-labelledby="classic-contact-heading"
-        className="mt-10 bg-[#26211E] text-[#FFF9F0] border-2 border-[#26211E] rounded-2xl p-6 sm:p-8 shadow-[0_6px_0_#61564E]"
+        className="mt-10 ui-card-featured bg-[#26211E]! text-[#FFF9F0] p-6 sm:p-8"
       >
         <h2
           id="classic-contact-heading"
@@ -356,7 +332,7 @@ export const ClassicPortfolioPage: React.FC = () => {
         <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <a
             href={`mailto:${DEVELOPER_PROFILE.email}`}
-            className="p-3.5 rounded-xl bg-[#FFF9F0] text-[#26211E] border-2 border-[#EC6D2C] font-bold text-xs sm:text-sm flex items-center gap-2 hover:bg-[#F5E9D4] transition-colors"
+            className="ui-btn ui-btn-outline justify-start! p-3.5 text-xs sm:text-sm border-[#EC6D2C]!"
           >
             <Mail className="w-4 h-4 text-[#EC6D2C] shrink-0" />
             <span className="truncate">{DEVELOPER_PROFILE.email}</span>
@@ -364,7 +340,7 @@ export const ClassicPortfolioPage: React.FC = () => {
 
           <a
             href={`tel:${DEVELOPER_PROFILE.phone.replace(/\s+/g, '')}`}
-            className="p-3.5 rounded-xl bg-[#FFF9F0] text-[#26211E] border-2 border-[#21968B] font-bold text-xs sm:text-sm flex items-center gap-2 hover:bg-[#F5E9D4] transition-colors"
+            className="ui-btn ui-btn-outline justify-start! p-3.5 text-xs sm:text-sm border-[#21968B]!"
           >
             <Phone className="w-4 h-4 text-[#21968B] shrink-0" />
             <span>{DEVELOPER_PROFILE.phone}</span>
@@ -374,7 +350,7 @@ export const ClassicPortfolioPage: React.FC = () => {
             href={DEVELOPER_PROFILE.githubUrl}
             target="_blank"
             rel="noreferrer"
-            className="p-3.5 rounded-xl bg-[#FFF9F0] text-[#26211E] border-2 border-[#26211E] font-bold text-xs sm:text-sm flex items-center gap-2 hover:bg-[#F5E9D4] transition-colors"
+            className="ui-btn ui-btn-outline justify-start! p-3.5 text-xs sm:text-sm"
           >
             <Github className="w-4 h-4 shrink-0" />
             <span>GitHub Profile</span>
@@ -384,7 +360,7 @@ export const ClassicPortfolioPage: React.FC = () => {
             href={DEVELOPER_PROFILE.linkedinUrl}
             target="_blank"
             rel="noreferrer"
-            className="p-3.5 rounded-xl bg-[#FFF9F0] text-[#26211E] border-2 border-[#26211E] font-bold text-xs sm:text-sm flex items-center gap-2 hover:bg-[#F5E9D4] transition-colors"
+            className="ui-btn ui-btn-outline justify-start! p-3.5 text-xs sm:text-sm"
           >
             <Linkedin className="w-4 h-4 text-[#3E7B9E] shrink-0" />
             <span>LinkedIn Profile</span>

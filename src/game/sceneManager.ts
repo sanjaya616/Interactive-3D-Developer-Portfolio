@@ -233,9 +233,13 @@ export class SceneManager {
         col.mesh.visible = false;
       }
     }
-    worldEnv.applyWeatherMode(this.settings.weatherMode);
+    worldEnv.applyWeatherMode(this.settings.weatherMode, true);
     worldEnv.setWindMode(this.settings.windMode ?? 'auto');
-    worldEnv.setPerformanceProfile(this.settings.quality, this.settings.reducedMotion);
+    worldEnv.setPerformanceProfile(
+      this.settings.quality,
+      this.settings.reducedMotion,
+      this.isSoftwareGl,
+    );
     this.worldEnv = worldEnv;
 
     cameraRig.setColliders(worldEnv.staticColliders);
@@ -407,6 +411,10 @@ export class SceneManager {
     this.worldEnv?.setSecurityGateOpen(open);
   }
 
+  setWaypointTarget(landmarkId: string | null): void {
+    this.worldEnv?.setWaypointTarget(landmarkId);
+  }
+
   syncSavedRaceData(best: number | null, last: number | null, ghost: GhostSample[]): void {
     this.challengeMgr.setSavedRaceData(best, last, ghost);
   }
@@ -464,9 +472,13 @@ export class SceneManager {
       this.applyQualityToRenderer(this.renderer);
     }
     this.cameraRig?.setReducedMotion(next.reducedMotion);
-    this.worldEnv?.applyWeatherMode(next.weatherMode);
+    this.worldEnv?.applyWeatherMode(next.weatherMode, false);
     this.worldEnv?.setWindMode(next.windMode ?? 'auto');
-    this.worldEnv?.setPerformanceProfile(next.quality, next.reducedMotion);
+    this.worldEnv?.setPerformanceProfile(
+      next.quality,
+      next.reducedMotion,
+      this.isSoftwareGl,
+    );
     const ambientDark = next.weatherMode === 'night' || next.weatherMode === 'sunset';
     this.vehicleRig?.setHeadlightsOn(next.headlightsOn, ambientDark);
     if (this.renderer && this.scene && this.cameraRig) {
@@ -511,6 +523,7 @@ export class SceneManager {
     );
     this.renderer?.render(this.scene!, this.cameraRig.camera);
     this.currentNearest = landmark;
+    this.worldEnv?.triggerDiscoveryPulse(landmark.position.x, landmark.position.z, landmark.color);
     if (!this.discoveredSet.has(landmark.id)) {
       this.discoveredSet.add(landmark.id);
       this.callbacks.onLandmarkDiscovered(landmark);
@@ -672,10 +685,12 @@ export class SceneManager {
     if (this.disposed || !this.renderer || !this.scene || !this.cameraRig) return;
 
     const now = performance.now();
-    const dt = clampDt((now - this.lastTime) / 1000);
+    const rawFrameDt = Math.min(0.25, Math.max(0.001, (now - this.lastTime) / 1000));
+    const dt = clampDt(rawFrameDt);
     this.lastTime = now;
 
     if (this.phase === 'photomode') {
+      this.worldEnv?.updateEnvironment(this.elapsed, rawFrameDt);
       const move = this.controls.getPhotoMoveIntent();
       this.cameraRig.panPhotoCamera(move.forward, move.right, move.up, dt);
       this.cameraRig.updatePhotoMode(dt);
@@ -690,7 +705,7 @@ export class SceneManager {
     }
 
     this.elapsed += dt;
-    this.worldEnv?.updateEnvironment(this.elapsed, dt);
+    this.worldEnv?.updateEnvironment(this.elapsed, rawFrameDt);
 
     if (this.phase === 'title') {
       this.controls.pollMenuGamepad();
@@ -807,6 +822,7 @@ export class SceneManager {
         ) {
           this.discoveredSecretSet.add(sec.id);
           soundEngine.playChime();
+          this.worldEnv?.triggerDiscoveryPulse(sec.x, sec.z, '#5E915E');
           this.callbacks.onSecretDiscovered(sec.id, sec.title);
         }
       }
@@ -847,6 +863,7 @@ export class SceneManager {
       if (landmark && !this.discoveredSet.has(landmark.id)) {
         this.discoveredSet.add(landmark.id);
         soundEngine.playChime();
+        this.worldEnv?.triggerDiscoveryPulse(landmark.position.x, landmark.position.z, landmark.color);
         this.callbacks.onLandmarkDiscovered(landmark);
       }
 

@@ -71,7 +71,7 @@ export const GaragePage: React.FC = () => {
     >
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Left: Live Interactive Three.js 3D Turntable Showroom */}
-        <div className="lg:col-span-5 bg-[#F5E9D4] border-2 border-[#26211E] rounded-2xl p-6 shadow-[0_6px_0_#26211E] lg:sticky lg:top-24">
+        <div className="lg:col-span-5 ui-card-featured bg-[#F5E9D4]! p-6 lg:sticky lg:top-24">
           <div className="flex items-center justify-between gap-2 mb-3">
             <div>
               <div className="text-xs font-extrabold text-[#61564E]">LIVE 3D SHOWROOM</div>
@@ -79,7 +79,7 @@ export const GaragePage: React.FC = () => {
                 {activeChassis.label.toUpperCase()}
               </h2>
             </div>
-            <span className="px-2.5 py-1 rounded-lg bg-[#FFF9F0] border-2 border-[#26211E] text-xs font-extrabold tabular-nums">
+            <span className="px-2.5 py-1 rounded-lg bg-[#FFF9F0] border border-[#CBB18D] text-xs font-extrabold tabular-nums">
               {vehicleConfig.plateText}
             </span>
           </div>
@@ -112,7 +112,7 @@ export const GaragePage: React.FC = () => {
 
           <Link
             to="/?autostart=1"
-            className="mt-5 w-full py-3 rounded-xl bg-[#EC6D2C] text-[#FFF9F0] border-2 border-[#26211E] shadow-[0_3px_0_#26211E] text-sm font-extrabold flex items-center justify-center gap-2 hover:bg-[#CC5318] transition-colors"
+            className="ui-btn ui-btn-primary mt-5 w-full py-3 text-sm"
           >
             <Compass className="w-4 h-4" />
             <span>Test Drive in 3D World</span>
@@ -134,10 +134,10 @@ export const GaragePage: React.FC = () => {
                     key={ch.id}
                     type="button"
                     onClick={() => updateVehicleConfig({ chassisType: ch.id })}
-                    className={`p-4 rounded-xl border-2 border-[#26211E] text-left transition-all duration-150 cursor-pointer ${
+                    className={`p-4 rounded-xl border-[1.5px] text-left transition-all duration-150 cursor-pointer ${
                       selected
-                        ? 'bg-[#26211E] text-[#FFF9F0] shadow-[0_3px_0_#EC6D2C]'
-                        : 'bg-[#FFF9F0] text-[#26211E] hover:bg-[#F5E9D4]'
+                        ? 'bg-[#26211E] border-[#26211E] text-[#FFF9F0] shadow-[0_3px_0_#EC6D2C]'
+                        : 'bg-[#FFF9F0] border-[#CBB18D] text-[#26211E] hover:border-[#26211E] hover:bg-[#F5E9D4]'
                     }`}
                   >
                     <div className="text-sm font-extrabold">{ch.label}</div>
@@ -156,13 +156,26 @@ export const GaragePage: React.FC = () => {
 
           {/* 2. Paint & Unlockable Skins */}
           <section className="ui-card p-6">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="font-display text-4xl font-bold text-[#26211E]">
-                2. PAINTS &amp; UNLOCKABLE SKINS
-              </h2>
-              <span className="text-xs font-extrabold text-[#61564E] tabular-nums">
-                {unlockedSkins.length}/{GARAGE_PAINT_PRESETS.length} Unlocked
-              </span>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="font-display text-4xl font-bold text-[#26211E]">
+                  2. PAINTS &amp; UNLOCKABLE SKINS
+                </h2>
+                <p className="text-xs font-semibold text-[#61564E] mt-0.5">
+                  All 6 starter liveries are open immediately; 7 bonus finishes unlock via in-world achievements.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-extrabold text-[#61564E] tabular-nums">
+                  {unlockedSkins.length}/{GARAGE_PAINT_PRESETS.length} Unlocked
+                </span>
+                <Link
+                  to="/achievements"
+                  className="text-xs font-extrabold text-[#21968B] hover:underline"
+                >
+                  View Unlock Guide
+                </Link>
+              </div>
             </div>
             <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
               {GARAGE_PAINT_PRESETS.map((preset) => {
@@ -183,12 +196,12 @@ export const GaragePage: React.FC = () => {
                         accentColor: preset.accent,
                       });
                     }}
-                    className={`p-3 rounded-xl border-2 border-[#26211E] text-left transition-all duration-150 ${
+                    className={`p-3 rounded-xl border-[1.5px] text-left transition-all duration-150 ${
                       !isUnlocked
-                        ? 'bg-[#F5E9D4]/45 opacity-70 cursor-not-allowed'
+                        ? 'bg-[#F5E9D4]/45 border-[#D9C3A3] opacity-75 cursor-not-allowed'
                         : selected
-                          ? 'bg-[#F5E9D4] shadow-[0_3px_0_#26211E] cursor-pointer'
-                          : 'bg-[#FFF9F0] hover:bg-[#F5E9D4]/60 cursor-pointer'
+                          ? 'bg-[#F5E9D4] border-[#26211E] shadow-[0_3px_0_#26211E] cursor-pointer'
+                          : 'bg-[#FFF9F0] border-[#CBB18D] hover:border-[#26211E] hover:bg-[#F5E9D4]/60 cursor-pointer'
                     }`}
                   >
                     <div className="flex items-center justify-between">
@@ -197,17 +210,28 @@ export const GaragePage: React.FC = () => {
                         style={{ backgroundColor: preset.hex }}
                       />
                       {!isUnlocked ? (
-                        <Lock className="w-4 h-4 text-[#61564E]" />
+                        <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-[#61564E]">
+                          <Lock className="w-3.5 h-3.5" />
+                          <span>Locked</span>
+                        </span>
                       ) : selected ? (
                         <Check className="w-4 h-4 text-[#26211E]" />
-                      ) : null}
+                      ) : preset.unlockAchievementId ? (
+                        <span className="text-[10px] font-extrabold text-[#5E915E]">
+                          Earned
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-[#61564E]">
+                          Starter
+                        </span>
+                      )}
                     </div>
                     <div className="mt-2 text-xs font-extrabold text-[#26211E]">
                       {preset.name}
                     </div>
                     {preset.unlockAchievementId && (
                       <div className="mt-0.5 text-[10px] font-bold text-[#61564E]">
-                        {isUnlocked ? 'Unlocked!' : preset.unlockLabel}
+                        {isUnlocked ? 'Unlocked via achievement' : preset.unlockLabel}
                       </div>
                     )}
                   </button>
@@ -230,22 +254,23 @@ export const GaragePage: React.FC = () => {
                 return (
                   <div
                     key={track.key}
-                    className="p-3.5 rounded-xl bg-[#F5E9D4]/70 border border-[#D9C3A3] flex flex-wrap items-center justify-between gap-3"
+                    className="ui-card-sand p-3.5 flex flex-wrap items-center justify-between gap-3"
                   >
                     <div>
                       <div className="text-sm font-extrabold text-[#26211E]">{track.title}</div>
                       <div className="text-xs font-semibold text-[#61564E]">{track.desc}</div>
                     </div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="ui-segmented" role="group" aria-label={`${track.title} tier`}>
                       {([1, 2, 3] as const).map((tier) => (
                         <button
                           key={tier}
                           type="button"
+                          aria-pressed={currentTier === tier}
                           onClick={() => updateVehicleConfig({ [track.key]: tier })}
-                          className={`px-3 py-1.5 rounded-lg border-2 border-[#26211E] text-xs font-extrabold cursor-pointer transition-colors ${
+                          className={`px-3 py-1.5 rounded-lg text-xs font-extrabold cursor-pointer transition-colors ${
                             currentTier === tier
-                              ? 'bg-[#EC6D2C] text-[#FFF9F0]'
-                              : 'bg-[#FFF9F0] text-[#26211E] hover:bg-[#E6D3B5]'
+                              ? 'bg-[#EC6D2C] text-[#FFF9F0] shadow-[0_1px_2px_rgba(38,33,30,0.2)]'
+                              : 'text-[#61564E] hover:text-[#26211E] hover:bg-[#FFF9F0]/60'
                           }`}
                         >
                           Tier {tier}
@@ -271,10 +296,10 @@ export const GaragePage: React.FC = () => {
                     key={wo.id}
                     type="button"
                     onClick={() => updateVehicleConfig({ wheelStyle: wo.id })}
-                    className={`p-3.5 rounded-xl border-2 border-[#26211E] text-left cursor-pointer transition-colors ${
+                    className={`p-3.5 rounded-xl border-[1.5px] text-left cursor-pointer transition-colors ${
                       selected
-                        ? 'bg-[#26211E] text-[#FFF9F0]'
-                        : 'bg-[#FFF9F0] text-[#26211E] hover:bg-[#F5E9D4]'
+                        ? 'bg-[#26211E] border-[#26211E] text-[#FFF9F0] shadow-[0_3px_0_#EC6D2C]'
+                        : 'bg-[#FFF9F0] border-[#CBB18D] text-[#26211E] hover:border-[#26211E] hover:bg-[#F5E9D4]'
                     }`}
                   >
                     <div className="text-sm font-extrabold">{wo.label}</div>
@@ -304,10 +329,10 @@ export const GaragePage: React.FC = () => {
                     key={acc.id}
                     type="button"
                     onClick={() => updateVehicleConfig({ accessory: acc.id })}
-                    className={`p-3.5 rounded-xl border-2 border-[#26211E] text-left cursor-pointer transition-all duration-150 ${
+                    className={`p-3.5 rounded-xl border-[1.5px] text-left cursor-pointer transition-all duration-150 ${
                       selected
-                        ? 'bg-[#F5E9D4] shadow-[0_3px_0_#26211E]'
-                        : 'bg-[#FFF9F0] hover:bg-[#F5E9D4]/55'
+                        ? 'bg-[#F5E9D4] border-[#26211E] shadow-[0_3px_0_#26211E]'
+                        : 'bg-[#FFF9F0] border-[#CBB18D] hover:border-[#26211E] hover:bg-[#F5E9D4]/55'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -334,10 +359,10 @@ export const GaragePage: React.FC = () => {
                     key={hl.id}
                     type="button"
                     onClick={() => updateVehicleConfig({ headlightEffect: hl.id })}
-                    className={`p-3.5 rounded-xl border-2 border-[#26211E] text-left cursor-pointer transition-all duration-150 ${
+                    className={`p-3.5 rounded-xl border-[1.5px] text-left cursor-pointer transition-all duration-150 ${
                       selected
-                        ? 'bg-[#F5E9D4] shadow-[0_3px_0_#26211E]'
-                        : 'bg-[#FFF9F0] hover:bg-[#F5E9D4]/60'
+                        ? 'bg-[#F5E9D4] border-[#26211E] shadow-[0_3px_0_#26211E]'
+                        : 'bg-[#FFF9F0] border-[#CBB18D] hover:border-[#26211E] hover:bg-[#F5E9D4]/60'
                     }`}
                   >
                     <div className="flex items-center justify-between">
@@ -373,11 +398,11 @@ export const GaragePage: React.FC = () => {
                 value={plateInput}
                 onChange={(e) => setPlateInput(e.target.value)}
                 placeholder="SANJAYA"
-                className="px-4 py-2.5 rounded-xl border-2 border-[#26211E] bg-[#FFF9F0] text-sm font-extrabold uppercase tracking-wider w-48 text-[#26211E]"
+                className="ui-input w-48! font-extrabold! uppercase tracking-wider"
               />
               <button
                 type="submit"
-                className="px-5 py-2.5 rounded-xl bg-[#21968B] text-[#FFF9F0] border-2 border-[#26211E] text-sm font-extrabold hover:opacity-90 cursor-pointer"
+                className="ui-btn ui-btn-accent px-5 py-2.5 text-sm"
               >
                 Update Plate
               </button>

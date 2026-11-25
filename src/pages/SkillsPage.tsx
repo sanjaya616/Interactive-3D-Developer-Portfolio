@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import gsap from 'gsap';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Compass, Sparkles } from 'lucide-react';
 import { PortfolioLayout } from '../components/PortfolioLayout';
 import { SkillSymbol } from '../components/SkillSymbol';
 import {
@@ -9,12 +9,27 @@ import {
   SKILL_CATEGORIES,
   SKILLS_CATALOG,
 } from '../data/portfolioData';
-import type { SkillItem } from '../types/portfolio';
+import { SKILL_ORB_LINKS } from '../game/progression';
+import { useAppState } from '../state/AppStateContext';
+import type { SkillCategoryName, SkillItem } from '../types/portfolio';
+
+const CATEGORY_DOT: Record<SkillCategoryName, string> = {
+  Frontend: 'bg-[#EC6D2C]',
+  'Backend and Databases': 'bg-[#3E7B9E]',
+  'Mobile and Games': 'bg-[#21968B]',
+  'Creative Work': 'bg-[#E65448]',
+  'Tools and Workflow': 'bg-[#5E915E]',
+};
 
 export const SkillsPage: React.FC = () => {
+  const { collectedIds } = useAppState();
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [selectedSkill, setSelectedSkill] = useState<SkillItem>(SKILLS_CATALOG[0]);
   const cardsRef = useRef<HTMLDivElement | null>(null);
+
+  const collectedOrbCount = SKILL_ORB_LINKS.filter((o) =>
+    collectedIds.includes(o.orbId),
+  ).length;
 
   const visibleSkills = useMemo(() => {
     if (selectedCategory === 'All') return SKILLS_CATALOG;
@@ -56,16 +71,52 @@ export const SkillsPage: React.FC = () => {
       title="SKILLS WORKSHOP"
       subtitle={`${SKILLS_CATALOG.length} Skills across ${SKILL_CATEGORIES.length} Categories · Click Any Card to Inspect`}
     >
+      {/* Skill Orbs Mastery Strip */}
+      <section className="ui-card-sand p-4 sm:p-5 mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <div className="flex items-center gap-2 text-xs font-extrabold tracking-wider text-[#21968B]">
+            <Sparkles className="w-4 h-4" />
+            <span>WORLD SKILL ORBS MASTERY · {collectedOrbCount}/{SKILL_ORB_LINKS.length} COLLECTED</span>
+          </div>
+          <Link
+            to="/?autostart=1"
+            className="ui-btn ui-btn-accent px-3.5 py-1.5 text-xs"
+          >
+            <Compass className="w-3.5 h-3.5" />
+            <span>Hunt Orbs in 3D World</span>
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
+          {SKILL_ORB_LINKS.map((orb) => {
+            const collected = collectedIds.includes(orb.orbId);
+            return (
+              <div
+                key={orb.orbId}
+                title={collected ? orb.skillNames.join(', ') : orb.hint}
+                className={`p-2 rounded-xl border text-[11px] transition-colors ${
+                  collected
+                    ? 'bg-[#FFF9F0] border-[#21968B] text-[#26211E]'
+                    : 'bg-[#FFF9F0]/60 border-[#D9C3A3] text-[#61564E]'
+                }`}
+              >
+                <div className="font-extrabold truncate">{orb.techFocus.split(' ')[0]}</div>
+                <div className={`text-[10px] font-bold ${collected ? 'text-[#5E915E]' : 'text-[#61564E]'}`}>
+                  {collected ? 'Collected ✓' : 'Hidden'}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
       {/* 5 Filterable Skill Categories */}
       <div className="flex flex-wrap items-center gap-2 mb-8">
         <button
           type="button"
+          aria-pressed={selectedCategory === 'All'}
           onClick={() => setSelectedCategory('All')}
-          className={`px-4 py-2 rounded-xl text-xs font-extrabold border-2 border-[#26211E] transition-colors duration-150 cursor-pointer ${
-            selectedCategory === 'All'
-              ? 'bg-[#26211E] text-[#FFF9F0]'
-              : 'bg-[#F5E9D4] text-[#26211E] hover:bg-[#E6D3B5]'
-          }`}
+          className="ui-filter-chip"
         >
           All ({SKILLS_CATALOG.length})
         </button>
@@ -76,14 +127,15 @@ export const SkillsPage: React.FC = () => {
             <button
               key={cat}
               type="button"
+              aria-pressed={selectedCategory === cat}
               onClick={() => setSelectedCategory(cat)}
-              className={`px-4 py-2 rounded-xl text-xs font-extrabold border-2 border-[#26211E] transition-colors duration-150 cursor-pointer whitespace-nowrap ${
-                selectedCategory === cat
-                  ? 'bg-[#26211E] text-[#FFF9F0]'
-                  : 'bg-[#F5E9D4] text-[#26211E] hover:bg-[#E6D3B5]'
-              }`}
+              className="ui-filter-chip whitespace-nowrap"
             >
-              {cat} ({count})
+              <span
+                className={`w-2 h-2 rounded-full shrink-0 ${CATEGORY_DOT[cat]}`}
+                aria-hidden="true"
+              />
+              <span>{cat} ({count})</span>
             </button>
           );
         })}
@@ -99,10 +151,10 @@ export const SkillsPage: React.FC = () => {
                 key={skill.id}
                 type="button"
                 onClick={() => setSelectedSkill(skill)}
-                className={`skill-card-anim text-left rounded-2xl p-4 border-2 border-[#26211E] transition-all duration-150 cursor-pointer flex items-start gap-3.5 ${
+                className={`skill-card-anim text-left p-4 flex items-start gap-3.5 cursor-pointer ${
                   active
-                    ? 'bg-[#F5E9D4] shadow-[0_5px_0_#26211E] -translate-y-0.5'
-                    : 'bg-[#FFF9F0] shadow-[0_3px_0_#26211E] hover:bg-[#F5E9D4]/55 hover:-translate-y-0.5'
+                    ? 'ui-card-featured bg-[#F5E9D4]! -translate-y-0.5'
+                    : 'ui-card-interactive'
                 }`}
               >
                 <SkillSymbol
@@ -128,7 +180,7 @@ export const SkillsPage: React.FC = () => {
         {/* Interactive Skill Detail Inspector */}
         <aside
           data-testid="skill-detail-panel"
-          className="lg:col-span-4 bg-[#F5E9D4] border-2 border-[#26211E] rounded-2xl p-6 shadow-[0_6px_0_#26211E] lg:sticky lg:top-24"
+          className="lg:col-span-4 ui-card-featured bg-[#F5E9D4]! p-6 lg:sticky lg:top-24"
         >
           <div className="flex items-center gap-3.5">
             <SkillSymbol
@@ -152,7 +204,7 @@ export const SkillsPage: React.FC = () => {
             {selectedSkill.detailDescription}
           </p>
 
-          <div className="mt-5 pt-4 border-t border-[#E6D3B5]">
+          <div className="mt-5 pt-4 border-t ui-divider">
             <div className="text-xs font-extrabold text-[#61564E] mb-2">
               APPLIED IN PROJECTS ({matchingProjects.length})
             </div>

@@ -4,6 +4,7 @@ import {
   computeBridgeSurfaceY,
   computeDrivingParamsForVehicle,
   computeGroundHeight,
+  getBridgeColliderSegments,
   stepPlanarDriving,
   type DrivingDynamicsParams,
   type VehicleInputIntent,
@@ -86,38 +87,34 @@ export class RapierVehiclePhysics {
       .setRestitution(0.05);
     this.world.createCollider(terrainCollider, groundBody);
 
-    // Emerald Lagoon Bridge deck & approach ramps
+    // Arched bridge deck chord colliders (Main Emerald Lagoon, NW Ring Viaduct, South Cove Footbridge)
     const bridgeBody = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
-    this.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(3.4, 0.18, 5.3)
-        .setTranslation(40, 0.78, -22)
-        .setFriction(0.65),
-      bridgeBody,
-    );
-    this.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(3.4, 0.14, 2.7)
-        .setTranslation(40, 0.42, -29.6)
-        .setRotation(new THREE.Quaternion().setFromEuler(new THREE.Euler(0.17, 0, 0)))
-        .setFriction(0.65),
-      bridgeBody,
-    );
-    this.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(3.4, 0.14, 2.7)
-        .setTranslation(40, 0.42, -14.4)
-        .setRotation(new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.17, 0, 0)))
-        .setFriction(0.65),
-      bridgeBody,
-    );
+    const bridgeSegments = getBridgeColliderSegments();
+    const bridgeEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+    for (const seg of bridgeSegments) {
+      bridgeEuler.set(seg.pitchX, seg.yawY, seg.rollZ, 'YXZ');
+      this.world.createCollider(
+        RAPIER.ColliderDesc.cuboid(seg.hx, seg.hy, seg.hz)
+          .setTranslation(seg.x, seg.y, seg.z)
+          .setRotation(new THREE.Quaternion().setFromEuler(bridgeEuler))
+          .setFriction(0.65),
+        bridgeBody,
+      );
+    }
 
     // 2. Static landmark building, bridge rail, tunnel & tree trunk colliders
+    const staticAxisY = new THREE.Vector3(0, 1, 0);
     for (const sc of staticColliders) {
-      const b = this.world.createRigidBody(
-        RAPIER.RigidBodyDesc.fixed().setTranslation(sc.x, sc.y, sc.z),
-      );
-      this.world.createCollider(
-        RAPIER.ColliderDesc.cuboid(sc.hx, sc.hy, sc.hz),
-        b,
-      );
+      const rbDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(sc.x, sc.y, sc.z);
+      if (sc.ry) {
+        rbDesc.setRotation(new THREE.Quaternion().setFromAxisAngle(staticAxisY, sc.ry));
+      }
+      const b = this.world.createRigidBody(rbDesc);
+      const colDesc = RAPIER.ColliderDesc.cuboid(sc.hx, sc.hy, sc.hz);
+      if (sc.friction !== undefined) {
+        colDesc.setFriction(sc.friction);
+      }
+      this.world.createCollider(colDesc, b);
     }
 
     // 3. Dynamic crates & cones

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { AnimatedProgress } from './ui/AnimatedProgress';
 
 interface LoadingScreenProps {
   visible: boolean;
@@ -66,17 +67,15 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ visible }) => {
           Building sandstone terrain, landmarks, physics &amp; vehicle rig...
         </p>
 
-        <div className="mt-7 w-full max-w-xs">
-          <div className="w-full h-3 bg-[#F5E9D4] rounded-full overflow-hidden border border-[#26211E]">
-            <div
-              className="h-full bg-[#EC6D2C] transition-all duration-150"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-          <div className="mt-2 flex items-center justify-between text-xs font-extrabold tabular-nums text-[#61564E]">
-            <span>LOADING SCENE</span>
-            <span>{progress}%</span>
-          </div>
+        <div className="mt-7 w-full max-w-xs ui-card-sand p-4">
+          <AnimatedProgress
+            value={progress}
+            max={100}
+            color="orange"
+            heightClass="h-3"
+            label="LOADING SCENE"
+            valueText={`${progress}%`}
+          />
         </div>
       </div>
     </div>

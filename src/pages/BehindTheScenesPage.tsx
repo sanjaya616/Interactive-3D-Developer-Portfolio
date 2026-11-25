@@ -52,11 +52,60 @@ export const BehindTheScenesPage: React.FC = () => {
       title="BEHIND THE SCENES"
       subtitle="Verified Stack · Actual Technologies Implemented in Sanjaya's World"
     >
+      {/* Clean Runtime Architecture Diagram */}
+      <section className="ui-card-featured bg-[#F5E9D4]/80! p-5 sm:p-6 mb-8">
+        <div className="text-xs font-extrabold tracking-wider text-[#21968B]">
+          ARCHITECTURE OVERVIEW
+        </div>
+        <h2 className="font-display text-4xl font-bold text-[#26211E] mt-0.5">
+          ISOLATED 3D LOOP &amp; PORTFOLIO LAYER
+        </h2>
+        <p className="mt-1 text-xs sm:text-sm font-semibold text-[#61564E]">
+          The WebGL canvas and Rapier3D physics engine mount once and communicate with React overlays via throttled snapshots so HUD state changes never interrupt driving.
+        </p>
+
+        <svg
+          viewBox="0 0 840 165"
+          className="w-full h-auto mt-4 rounded-xl bg-[#FFF9F0] border border-[#CBB18D]"
+          role="img"
+          aria-label="System architecture diagram linking React Router UI, AppState and Firebase persistence, and the Three.js plus Rapier3D 60Hz game loop"
+        >
+          {/* Node 1: React UI */}
+          <rect x="24" y="26" width="230" height="112" rx="14" fill="#F5E9D4" stroke="#26211E" strokeWidth="2.5" />
+          <text x="139" y="54" textAnchor="middle" fontSize="13" fontWeight="800" fill="#EC6D2C">PRESENTATION LAYER</text>
+          <text x="139" y="78" textAnchor="middle" fontSize="14" fontWeight="800" fill="#26211E">React 19 + Router</text>
+          <text x="139" y="99" textAnchor="middle" fontSize="11" fontWeight="700" fill="#61564E">15 Portfolio Routes · Game HUD</text>
+          <text x="139" y="116" textAnchor="middle" fontSize="11" fontWeight="700" fill="#61564E">GSAP Motion · Tailwind CSS v4</text>
+
+          {/* Connector 1 -> 2 */}
+          <line x1="254" y1="82" x2="305" y2="82" stroke="#26211E" strokeWidth="2.5" strokeDasharray="5 4" />
+          <polygon points="301,76 312,82 301,88" fill="#26211E" />
+
+          {/* Node 2: AppState + Persistence */}
+          <rect x="312" y="26" width="216" height="112" rx="14" fill="#FFF9F0" stroke="#21968B" strokeWidth="2.5" />
+          <text x="420" y="54" textAnchor="middle" fontSize="13" fontWeight="800" fill="#21968B">STATE &amp; PERSISTENCE</text>
+          <text x="420" y="78" textAnchor="middle" fontSize="14" fontWeight="800" fill="#26211E">AppStateContext</text>
+          <text x="420" y="99" textAnchor="middle" fontSize="11" fontWeight="700" fill="#61564E">localStorage + Cloud Firestore</text>
+          <text x="420" y="116" textAnchor="middle" fontSize="11" fontWeight="700" fill="#61564E">Achievements · Race Telemetry</text>
+
+          {/* Connector 2 -> 3 */}
+          <line x1="528" y1="82" x2="579" y2="82" stroke="#26211E" strokeWidth="2.5" strokeDasharray="5 4" />
+          <polygon points="575,76 586,82 575,88" fill="#26211E" />
+
+          {/* Node 3: 3D Engine */}
+          <rect x="586" y="26" width="230" height="112" rx="14" fill="#26211E" stroke="#EC6D2C" strokeWidth="2.5" />
+          <text x="701" y="54" textAnchor="middle" fontSize="13" fontWeight="800" fill="#FFE08A">60 HZ ENGINE LOOP</text>
+          <text x="701" y="78" textAnchor="middle" fontSize="14" fontWeight="800" fill="#FFF9F0">SceneManager</text>
+          <text x="701" y="99" textAnchor="middle" fontSize="11" fontWeight="700" fill="#F5E9D4">Three.js WebGL · Rapier3D WASM</text>
+          <text x="701" y="116" textAnchor="middle" fontSize="11" fontWeight="700" fill="#F5E9D4">Challenges · Howler Audio</text>
+        </svg>
+      </section>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {VERIFIED_STACK_PILLARS.map((pillar) => (
           <section
             key={pillar.number}
-            className="ui-card ui-card-interactive bg-[#FFF9F0] rounded-2xl p-6"
+            className="ui-card-interactive p-6"
           >
             <div className="text-xs font-extrabold tracking-wider text-[#EC6D2C]">
               {pillar.number}. {pillar.role.toUpperCase()}

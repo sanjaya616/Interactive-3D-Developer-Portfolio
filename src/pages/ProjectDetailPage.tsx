@@ -60,8 +60,8 @@ export const ProjectDetailPage: React.FC = () => {
           <span>Back to Projects</span>
         </Link>
 
-        <span className="px-3 py-1 rounded-xl bg-[#F5E9D4] border-2 border-[#26211E] text-xs font-extrabold text-[#26211E] tabular-nums">
-          Project Explorer Progress: {openedProjects.length} / {PORTFOLIO_PROJECTS.length} Opened
+        <span className="px-3 py-1 rounded-lg bg-[#F5E9D4] border border-[#D9C3A3] text-xs font-extrabold text-[#26211E] tabular-nums">
+          Project Explorer: {openedProjects.length} / {PORTFOLIO_PROJECTS.length} Opened
         </span>
       </div>
 
@@ -82,7 +82,7 @@ export const ProjectDetailPage: React.FC = () => {
             <section className="ui-card p-5">
               <div className="flex items-center gap-2 text-xs font-extrabold text-[#5E915E]">
                 <CheckCircle2 className="w-4 h-4" />
-                <span>IMPLEMENTED FEATURES</span>
+                <span>IMPLEMENTED FEATURES ({project.implementedFeatures.length})</span>
               </div>
               <ul className="mt-3 space-y-2">
                 {project.implementedFeatures.map((feat) => (
@@ -98,10 +98,10 @@ export const ProjectDetailPage: React.FC = () => {
             </section>
 
             {/* Planned Features — explicitly separated */}
-            <section className="p-5 rounded-2xl bg-[#F5E9D4]/75 border-2 border-[#26211E]">
+            <section className="ui-card-sand p-5">
               <div className="flex items-center gap-2 text-xs font-extrabold text-[#CC5318]">
                 <Clock className="w-4 h-4" />
-                <span>PLANNED FEATURES</span>
+                <span>PLANNED FEATURES ({project.plannedFeatures.length})</span>
               </div>
               {project.plannedFeatures.length > 0 ? (
                 <ul className="mt-3 space-y-2">
@@ -134,19 +134,19 @@ export const ProjectDetailPage: React.FC = () => {
         </div>
 
         <aside className="lg:col-span-4 space-y-5">
-          <div className="p-5 rounded-2xl bg-[#F5E9D4] border-2 border-[#26211E] shadow-[0_5px_0_#26211E]">
+          <div className="ui-card-featured bg-[#F5E9D4]! p-5">
             <h2 className="font-display text-3xl font-bold text-[#26211E]">
               PROJECT STATUS
             </h2>
             <dl className="mt-3 space-y-2.5 text-sm">
-              <div className="flex items-center justify-between gap-2 pb-2 border-b border-[#E6D3B5]">
+              <div className="flex items-center justify-between gap-2 pb-2 border-b ui-divider">
                 <dt className="font-bold text-[#61564E]">Category</dt>
                 <dd className="font-extrabold text-[#26211E] text-right">{project.category}</dd>
               </div>
               <div className="flex items-center justify-between gap-2">
                 <dt className="font-bold text-[#61564E]">Current Status</dt>
                 <dd
-                  className="px-2.5 py-0.5 rounded-md border border-[#26211E] text-xs font-extrabold text-[#FFF9F0]"
+                  className="px-2.5 py-0.5 rounded-md border border-[#26211E]/35 text-xs font-extrabold text-[#FFF9F0]"
                   style={{ backgroundColor: project.accentColor }}
                 >
                   {project.status}
@@ -159,16 +159,9 @@ export const ProjectDetailPage: React.FC = () => {
             <h2 className="font-display text-3xl font-bold text-[#26211E]">
               TECHNOLOGIES
             </h2>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {project.technologies.map((tech) => (
-                <span
-                  key={tech}
-                  className="px-3 py-1 rounded-lg bg-[#F5E9D4] border border-[#D9C3A3] text-xs font-extrabold text-[#26211E]"
-                >
-                  {tech}
-                </span>
-              ))}
-            </div>
+            <p className="mt-2.5 text-sm font-extrabold text-[#26211E] leading-relaxed">
+              {project.technologies.join(' · ')}
+            </p>
           </div>
 
           {/* Editable Verified Links Panel (No fabricated URLs) */}
@@ -182,13 +175,13 @@ export const ProjectDetailPage: React.FC = () => {
                   href={project.links.liveUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#EC6D2C] text-[#FFF9F0] border-2 border-[#26211E] font-extrabold flex items-center justify-between hover:bg-[#CC5318] transition-colors"
+                  className="w-full ui-btn ui-btn-primary px-3.5 py-2.5 justify-between"
                 >
                   <span>Visit Live Website</span>
                   <ExternalLink className="w-4 h-4" />
                 </a>
               ) : (
-                <div className="p-3 rounded-xl bg-[#F5E9D4]/75 border border-[#D9C3A3]">
+                <div className="p-3 ui-card-sand">
                   <div className="font-extrabold text-[#26211E]">Live Demo</div>
                   <div className="mt-0.5">{project.links.livePlaceholder}</div>
                 </div>
@@ -199,13 +192,13 @@ export const ProjectDetailPage: React.FC = () => {
                   href={project.links.repoUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#26211E] text-[#FFF9F0] font-extrabold flex items-center justify-between hover:opacity-90 transition-opacity"
+                  className="w-full ui-btn ui-btn-dark px-3.5 py-2.5 justify-between"
                 >
                   <span>View Source Repository</span>
                   <FolderGit2 className="w-4 h-4" />
                 </a>
               ) : (
-                <div className="p-3 rounded-xl bg-[#F5E9D4]/75 border border-[#D9C3A3]">
+                <div className="p-3 ui-card-sand">
                   <div className="font-extrabold text-[#26211E]">Repository</div>
                   <div className="mt-0.5">{project.links.repoPlaceholder}</div>
                 </div>
