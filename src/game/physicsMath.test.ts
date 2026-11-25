@@ -10,6 +10,20 @@ import {
   speedMsToKmh,
   stepPlanarDriving,
 } from './physicsMath';
+import {
+  EMERALD_LAGOON_BOUNDS,
+  MOORED_BOAT_ANCHOR,
+  SOUTH_COVE_BOUNDS,
+  WATER_BASE_Y,
+  computeFloatingBoatPose,
+  computeWaterShoreDepth,
+  sampleWaterSurface,
+} from './waterWaveMath';
+import {
+  distToSegment,
+  generateWorldVegetationLayout,
+  resolveWindProfile,
+} from './vegetationPlacement';
 import { ChallengeManager } from './challengeController';
 import {
   ACHIEVEMENTS_LIST,
@@ -127,6 +141,60 @@ test('computeGroundHeight models flat plaza, Lookout Hill plateau, water basins,
   assert.equal(computeBridgeSurfaceY(0, 0), null);
 });
 
+test('water wave sampler and boat buoyancy stay continuous, weather-responsive, and below bridge decks', () => {
+  const lagoonDepth = computeWaterShoreDepth(
+    EMERALD_LAGOON_BOUNDS.centerX,
+    EMERALD_LAGOON_BOUNDS.centerZ,
+  );
+  const coveDepth = computeWaterShoreDepth(
+    SOUTH_COVE_BOUNDS.centerX,
+    SOUTH_COVE_BOUNDS.centerZ,
+  );
+  assert.ok(lagoonDepth > 6.5);
+  assert.ok(coveDepth > 11.5);
+  assert.equal(computeWaterShoreDepth(0, 0), 0);
+
+  const weathers = ['sunny', 'sunset', 'night', 'rain', 'fog'] as const;
+  const qualities = ['low', 'medium', 'high'] as const;
+  const scratch = {
+    worldY: WATER_BASE_Y,
+    displacement: 0,
+    dhdx: 0,
+    dhdz: 0,
+    shoreDepth: 0,
+  };
+  const poseScratch = { y: 0, pitchX: 0, rollZ: 0, yawOffset: 0 };
+
+  for (const weather of weathers) {
+    for (const quality of qualities) {
+      for (const t of [0, 1.25, 4.7]) {
+        const res = sampleWaterSurface(45, -22, t, weather, quality, scratch);
+        assert.equal(res, scratch);
+        assert.ok(Number.isFinite(res.worldY));
+        assert.ok(Number.isFinite(res.dhdx) && Number.isFinite(res.dhdz));
+        // Always remains well below Emerald Lagoon bridge deck (0.66 bottom / 0.9 top)
+        assert.ok(res.worldY < -0.15, `Water height ${res.worldY} exceeded safe bridge clearance`);
+
+        const boatPose = computeFloatingBoatPose(
+          MOORED_BOAT_ANCHOR.x,
+          MOORED_BOAT_ANCHOR.z,
+          MOORED_BOAT_ANCHOR.baseYaw,
+          MOORED_BOAT_ANCHOR.draftOffset,
+          t,
+          weather,
+          quality,
+          scratch,
+          poseScratch,
+        );
+        assert.equal(boatPose, poseScratch);
+        assert.ok(boatPose.y > -0.48 && boatPose.y < -0.08);
+        assert.ok(Math.abs(boatPose.pitchX) < 0.25);
+        assert.ok(Math.abs(boatPose.rollZ) < 0.25);
+      }
+    }
+  }
+});
+
 test('all 9 destinations are distinct, non-overlapping, and detected cleanly', () => {
   assert.equal(WORLD_LANDMARKS.length, 9);
 
@@ -154,6 +222,7 @@ test('parseVersionedSave handles null, corrupted JSON, partial data, and valid v
   const empty = parseVersionedSave(null);
   assert.equal(empty.version, SAVE_VERSION);
   assert.equal(empty.settings.weatherMode, 'sunny');
+  assert.equal(empty.settings.windMode, 'auto');
   assert.equal(empty.settings.audioEnabled, false);
   assert.equal(empty.settings.musicEnabled, true);
   assert.equal(empty.settings.sfxVolume, 0.8);
@@ -168,6 +237,7 @@ test('parseVersionedSave handles null, corrupted JSON, partial data, and valid v
     JSON.stringify({
       settings: {
         weatherMode: 'night',
+        windMode: 'strong',
         cameraMode: 'invalid-cam',
         sfxVolume: 4.5,
         musicVolume: -0.2,
@@ -184,6 +254,7 @@ test('parseVersionedSave handles null, corrupted JSON, partial data, and valid v
     }),
   );
   assert.equal(partial.settings.weatherMode, 'night');
+  assert.equal(partial.settings.windMode, 'strong');
   assert.equal(partial.settings.cameraMode, 'chase');
   assert.equal(partial.settings.sfxVolume, 1);
   assert.equal(partial.settings.musicVolume, 0);
@@ -332,4 +403,87 @@ test('centralized Sanjaya Lakshan portfolio, 10 achievements, and 20 collectible
   }
 
   assert.ok(NAVIGATION_ROUTES.some((r) => r.path === '/classic'));
+});
+
+test('vegetation layout populates all 8+ species groups, hugs terrain, and keeps roads/landmarks/water clear', () => {
+  const layout = generateWorldVegetationLayout();
+
+  // Verify every vegetation category is substantially populated
+  assert.ok(layout.pines.length >= 80, `Expected >=80 pines, got ${layout.pines.length}`);
+  assert.ok(layout.palms.length >= 30, `Expected >=30 palms, got ${layout.palms.length}`);
+  assert.ok(layout.broadleafs.length >= 35, `Expected >=35 broadleafs, got ${layout.broadleafs.length}`);
+  assert.ok(layout.decoratives.length >= 20, `Expected >=20 decoratives, got ${layout.decoratives.length}`);
+  assert.ok(layout.shorelines.length >= 60, `Expected >=60 shoreline clumps, got ${layout.shorelines.length}`);
+  assert.ok(layout.shrubs.length >= 80, `Expected >=80 shrubs, got ${layout.shrubs.length}`);
+  assert.ok(layout.groundPlants.length >= 80, `Expected >=80 ferns, got ${layout.groundPlants.length}`);
+  assert.ok(layout.grass.length >= 500, `Expected >=500 grass clumps, got ${layout.grass.length}`);
+  assert.ok(layout.flowers.length >= 120, `Expected >=120 flower clusters, got ${layout.flowers.length}`);
+  assert.ok(layout.staticColliders.length >= 120);
+
+  const terrestrialGroups = [
+    ...layout.pines,
+    ...layout.palms,
+    ...layout.broadleafs,
+    ...layout.decoratives,
+    ...layout.shrubs,
+    ...layout.groundPlants,
+    ...layout.grass,
+    ...layout.flowers,
+  ];
+
+  // Every placement must sit flush on computeGroundHeight(x, z) and out of deep water
+  for (const p of [...terrestrialGroups, ...layout.shorelines]) {
+    const terrainY = computeGroundHeight(p.x, p.z);
+    assert.ok(
+      Math.abs(p.y - terrainY) < 1e-5,
+      `${p.species} at (${p.x.toFixed(1)}, ${p.z.toFixed(1)}) y=${p.y} != terrainY=${terrainY}`,
+    );
+    assert.ok(p.y >= -0.25, `${p.species} submerged too deep at y=${p.y}`);
+  }
+
+  for (const p of terrestrialGroups) {
+    // Must stay outside Starting Plaza, Paddock Oval Track, Emerald Bridge, and water basins
+    assert.ok(Math.hypot(p.x, p.z) >= 14.5, `${p.species} inside Starting Plaza`);
+    assert.equal(computeWaterShoreDepth(p.x, p.z), 0, `${p.species} placed in water basin`);
+    assert.ok(
+      !(p.x >= 35 && p.x <= 45 && p.z >= -33 && p.z <= -11),
+      `${p.species} encroached on Emerald Lagoon Bridge`,
+    );
+    // Lookout Hill ramp clear
+    assert.ok(
+      distToSegment(p.x, p.z, 0, -37, 0, -64) >= 3.0,
+      `${p.species} on Lookout Hill ramp`,
+    );
+    // Keep away from landmarks & collectibles
+    for (const lm of WORLD_LANDMARKS) {
+      assert.ok(
+        Math.hypot(p.x - lm.position.x, p.z - lm.position.z) >= 7.0,
+        `${p.species} too close to ${lm.title}`,
+      );
+    }
+    for (const col of WORLD_COLLECTIBLES) {
+      assert.ok(
+        Math.hypot(p.x - col.x, p.z - col.z) >= 2.0,
+        `${p.species} overlapping collectible ${col.id}`,
+      );
+    }
+  }
+});
+
+test('resolveWindProfile maps weather modes and manual overrides deterministically', () => {
+  assert.equal(resolveWindProfile('fog', 'auto').tier, 'calm');
+  assert.equal(resolveWindProfile('night', 'auto').tier, 'calm');
+  assert.equal(resolveWindProfile('sunny', 'auto').tier, 'normal');
+  assert.equal(resolveWindProfile('sunset', 'auto').tier, 'normal');
+  assert.equal(resolveWindProfile('rain', 'auto').tier, 'strong');
+
+  const calm = resolveWindProfile('rain', 'calm');
+  const normal = resolveWindProfile('fog', 'normal');
+  const strong = resolveWindProfile('sunny', 'strong');
+  assert.equal(calm.tier, 'calm');
+  assert.equal(normal.tier, 'normal');
+  assert.equal(strong.tier, 'strong');
+  assert.ok(calm.trunkAmp < normal.trunkAmp && normal.trunkAmp < strong.trunkAmp);
+  assert.ok(calm.frondAmp < normal.frondAmp && normal.frondAmp < strong.frondAmp);
+  assert.ok(calm.gustStrength < normal.gustStrength && normal.gustStrength < strong.gustStrength);
 });

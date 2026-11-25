@@ -234,6 +234,7 @@ export class SceneManager {
       }
     }
     worldEnv.applyWeatherMode(this.settings.weatherMode);
+    worldEnv.setWindMode(this.settings.windMode ?? 'auto');
     worldEnv.setPerformanceProfile(this.settings.quality, this.settings.reducedMotion);
     this.worldEnv = worldEnv;
 
@@ -464,6 +465,7 @@ export class SceneManager {
     }
     this.cameraRig?.setReducedMotion(next.reducedMotion);
     this.worldEnv?.applyWeatherMode(next.weatherMode);
+    this.worldEnv?.setWindMode(next.windMode ?? 'auto');
     this.worldEnv?.setPerformanceProfile(next.quality, next.reducedMotion);
     const ambientDark = next.weatherMode === 'night' || next.weatherMode === 'sunset';
     this.vehicleRig?.setHeadlightsOn(next.headlightsOn, ambientDark);

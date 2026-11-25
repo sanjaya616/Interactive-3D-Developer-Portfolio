@@ -6,6 +6,8 @@ export interface ProceduralTextureSet {
   plazaMedallion: THREE.CanvasTexture;
   woodPlankAlbedo: THREE.CanvasTexture;
   sandBump: THREE.CanvasTexture;
+  barkBump: THREE.CanvasTexture;
+  foliageBump: THREE.CanvasTexture;
   checkeredStrip: THREE.CanvasTexture;
   tireTread: THREE.CanvasTexture;
   dispose: () => void;
@@ -220,12 +222,59 @@ export function createWorldProceduralTextures(maxAniso = 4): ProceduralTextureSe
 
   const tireTread = createTireTreadTexture(maxAniso);
 
+  // 6. Fibrous bark & palm trunk ring bump texture
+  const barkCanvas = document.createElement('canvas');
+  barkCanvas.width = 128;
+  barkCanvas.height = 128;
+  const bkCtx = barkCanvas.getContext('2d')!;
+  bkCtx.fillStyle = '#808080';
+  bkCtx.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 64; i++) {
+    const x = (i * 17) % 128;
+    const h = 18 + (i % 5) * 14;
+    const y = (i * 31) % 128;
+    bkCtx.fillStyle = i % 2 === 0 ? '#656565' : '#9B9B9B';
+    bkCtx.fillRect(x, y, 2, h);
+  }
+  for (let y = 0; y < 128; y += 16) {
+    bkCtx.fillStyle = 'rgba(72, 72, 72, 0.38)';
+    bkCtx.fillRect(0, y, 128, 3);
+    bkCtx.fillStyle = 'rgba(175, 175, 175, 0.25)';
+    bkCtx.fillRect(0, y + 3, 128, 2);
+  }
+  const barkBump = finalizeTexture(barkCanvas, false, 2, 4, maxAniso);
+
+  // 7. Organic foliage & needle micro-relief bump texture
+  const leafCanvas = document.createElement('canvas');
+  leafCanvas.width = 128;
+  leafCanvas.height = 128;
+  const lCtx = leafCanvas.getContext('2d')!;
+  lCtx.fillStyle = '#7E7E7E';
+  lCtx.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 240; i++) {
+    const lx = (i * 47) % 128;
+    const ly = (i * 89) % 128;
+    const rx = 4 + (i % 4) * 2;
+    const ry = 2 + (i % 3);
+    lCtx.save();
+    lCtx.translate(lx, ly);
+    lCtx.rotate((i * 0.7) % Math.PI);
+    lCtx.fillStyle = i % 3 === 0 ? '#A5A5A5' : i % 3 === 1 ? '#5E5E5E' : '#909090';
+    lCtx.beginPath();
+    lCtx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+    lCtx.fill();
+    lCtx.restore();
+  }
+  const foliageBump = finalizeTexture(leafCanvas, false, 2, 2, maxAniso);
+
   return {
     asphaltAlbedo,
     asphaltBump,
     plazaMedallion,
     woodPlankAlbedo,
     sandBump,
+    barkBump,
+    foliageBump,
     checkeredStrip,
     tireTread,
     dispose: () => {
@@ -234,6 +283,8 @@ export function createWorldProceduralTextures(maxAniso = 4): ProceduralTextureSe
       plazaMedallion.dispose();
       woodPlankAlbedo.dispose();
       sandBump.dispose();
+      barkBump.dispose();
+      foliageBump.dispose();
       checkeredStrip.dispose();
       tireTread.dispose();
     },

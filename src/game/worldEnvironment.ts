@@ -10,9 +10,12 @@ import {
   WORLD_COLLECTIBLES,
   WORLD_LANDMARKS,
 } from '../data/portfolioData';
-import type { CollectibleKind, QualityLevel, WeatherMode } from '../types/portfolio';
+import type { CollectibleKind, QualityLevel, WeatherMode, WindMode } from '../types/portfolio';
 import { computeBridgeSurfaceY, computeGroundHeight } from './physicsMath';
 import { createWorldProceduralTextures } from './proceduralTextures';
+import { createVegetationSystem } from './vegetationSystem';
+import { createWaterSystem } from './waterSystem';
+import { MOORED_BOAT_ANCHOR, WATER_BASE_Y } from './waterWaveMath';
 
 export interface StaticBoxColliderDef {
   x: number;
@@ -60,6 +63,7 @@ export interface WorldBuildResult {
   setMemoryPadHighlight: (padId: number | null) => void;
   setTreasureState: (foundIds: string[]) => void;
   setPerformanceProfile: (quality: QualityLevel, reducedMotion: boolean) => void;
+  setWindMode: (mode: WindMode) => void;
   updateEnvironment: (elapsed: number, dt: number) => void;
   dispose: () => void;
 }
@@ -288,8 +292,6 @@ export function buildWorldEnvironment(
   let securityGateOpen = false;
   let deliveryBeacon: THREE.Mesh | null = null;
 
-  const windUniform = { value: 0 };
-
   const procTex = createWorldProceduralTextures(maxAnisotropy);
 
   // Sky, Starfield & Atmospheric Fog
@@ -379,6 +381,7 @@ export function buildWorldEnvironment(
   scene.add(coolFill);
 
   let currentWeather: WeatherMode = 'sunny';
+  let currentWindMode: WindMode = 'auto';
   let rainActive = false;
 
   // 1. Sculpted 280x280 Terrain Mesh with vertex color biomes + subtle wind-ripple bump
@@ -458,39 +461,8 @@ export function buildWorldEnvironment(
   cliffInst.computeBoundingSphere();
   scene.add(cliffInst);
 
-  // 2. Animated Rippling Water + Shoreline Rim + Jetty & Boat
-  const waterMat = new THREE.MeshPhysicalMaterial({
-    color: 0x21968b,
-    roughness: 0.12,
-    metalness: 0.14,
-    clearcoat: 0.8,
-    clearcoatRoughness: 0.1,
-    transparent: true,
-    opacity: 0.88,
-  });
-  waterMat.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = windUniform;
-    shader.vertexShader = `uniform float uTime;\n${shader.vertexShader}`.replace(
-      '#include <begin_vertex>',
-      `#include <begin_vertex>
-       transformed.y += sin(position.x * 0.45 + uTime * 2.2) * 0.065 + cos(position.z * 0.55 + uTime * 1.8) * 0.055;`,
-    );
-  };
-  materials.push(waterMat);
-
-  const lagoonGeo = new THREE.PlaneGeometry(60, 17, 32, 12);
-  lagoonGeo.rotateX(-Math.PI / 2);
-  geometries.push(lagoonGeo);
-  const lagoonMesh = new THREE.Mesh(lagoonGeo, waterMat);
-  lagoonMesh.position.set(45, -0.35, -22);
-  scene.add(lagoonMesh);
-
-  const coveGeo = new THREE.CircleGeometry(12.4, 32, 0, Math.PI * 2);
-  coveGeo.rotateX(-Math.PI / 2);
-  geometries.push(coveGeo);
-  const coveMesh = new THREE.Mesh(coveGeo, waterMat);
-  coveMesh.position.set(-18, -0.35, 66);
-  scene.add(coveMesh);
+  // 2. Stylized Coastal Water System (Emerald Lagoon & South Cove)
+  const waterSystem = createWaterSystem(scene, geometries, materials);
 
   // 3. Starting Plaza Medallion & Striped Asphalt Road Network
   const roadMat = new THREE.MeshStandardMaterial({
@@ -798,9 +770,15 @@ export function buildWorldEnvironment(
   const boatCabin = new THREE.Mesh(cabinGeo, woodMat);
   boatCabin.position.set(0, 0.56, -0.25);
   mooredBoat.add(boatHull, boatStripe, boatCabin);
-  mooredBoat.position.set(60, -0.18, -20.5);
-  mooredBoat.rotation.y = 0.4;
+  mooredBoat.rotation.order = 'YXZ';
+  mooredBoat.position.set(
+    MOORED_BOAT_ANCHOR.x,
+    WATER_BASE_Y + MOORED_BOAT_ANCHOR.draftOffset,
+    MOORED_BOAT_ANCHOR.z,
+  );
+  mooredBoat.rotation.y = MOORED_BOAT_ANCHOR.baseYaw;
   scene.add(mooredBoat);
+  waterSystem.update(0, mooredBoat);
 
   // Coastal Striped Lighthouse overlooking Lagoon (x: 73, z: -26)
   const lhBaseGeo = new THREE.CylinderGeometry(1.5, 2.2, 2.2, 12);
@@ -1478,173 +1456,11 @@ export function buildWorldEnvironment(
     scene.add(pole, arm, bulb);
   }
 
-  // 10. Instanced Wind-Driven Low-Poly Pines + Coastal Broadleaf Trees
-  const treeCoords: { x: number; z: number }[] = [];
-  const palmCoords: { x: number; z: number }[] = [];
-  for (let i = 0; i < 195; i++) {
-    const angle = i * 2.39996;
-    const radius = 21 + Math.sqrt(i / 195) * 89;
-    const tx = Math.cos(angle) * radius;
-    const tz = Math.sin(angle) * radius;
-    if (!isNearRoadOrBuilding(tx, tz)) {
-      if (i % 4 === 0) palmCoords.push({ x: tx, z: tz });
-      else treeCoords.push({ x: tx, z: tz });
-    }
+  // 10. Multi-Species Sculpted Instanced Vegetation & Coherent Shader Wind System
+  const vegetationSystem = createVegetationSystem(scene, procTex, geometries, materials);
+  for (const col of vegetationSystem.staticColliders) {
+    staticColliders.push(col);
   }
-
-  const trunkGeo = new THREE.CylinderGeometry(0.28, 0.42, 2.2, 7);
-  trunkGeo.translate(0, 1.1, 0);
-  const foliageGeo = new THREE.ConeGeometry(1.9, 3.6, 7);
-  foliageGeo.translate(0, 3.45, 0);
-  const foliageTopGeo = new THREE.ConeGeometry(1.38, 2.65, 7);
-  foliageTopGeo.translate(0, 5.15, 0);
-  geometries.push(trunkGeo, foliageGeo, foliageTopGeo);
-
-  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x764c31, roughness: 0.9 });
-  const foliageMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 });
-  foliageMat.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = windUniform;
-    shader.vertexShader = `uniform float uTime;\n${shader.vertexShader}`.replace(
-      '#include <begin_vertex>',
-      `#include <begin_vertex>
-       float sway = max(0.0, position.y - 1.8) * 0.045;
-       transformed.x += sin(uTime * 1.9 + position.y) * sway;`,
-    );
-  };
-  materials.push(trunkMat, foliageMat);
-
-  const trunkInst = new THREE.InstancedMesh(trunkGeo, trunkMat, treeCoords.length);
-  const foliageInst = new THREE.InstancedMesh(foliageGeo, foliageMat, treeCoords.length);
-  const foliageTopInst = new THREE.InstancedMesh(foliageTopGeo, foliageMat, treeCoords.length);
-  trunkInst.castShadow = true;
-  foliageInst.castShadow = true;
-  foliageTopInst.castShadow = true;
-
-  const paletteGreens = ['#548A53', '#497C4E', '#67995B', '#3E7049'];
-  treeCoords.forEach((tc, i) => {
-    const gy = computeGroundHeight(tc.x, tc.z);
-    const scale = 0.85 + ((i * 37) % 30) / 100;
-    dummy.position.set(tc.x, gy, tc.z);
-    dummy.rotation.set(0, i * 0.7, 0);
-    dummy.scale.setScalar(scale);
-    dummy.updateMatrix();
-    trunkInst.setMatrixAt(i, dummy.matrix);
-    foliageInst.setMatrixAt(i, dummy.matrix);
-    foliageTopInst.setMatrixAt(i, dummy.matrix);
-
-    cColor.set(paletteGreens[i % paletteGreens.length]);
-    foliageInst.setColorAt(i, cColor);
-    cColor.offsetHSL(0, 0, 0.05);
-    foliageTopInst.setColorAt(i, cColor);
-
-    if (Math.hypot(tc.x, tc.z) < 88) {
-      staticColliders.push({ x: tc.x, y: gy + 1.2, z: tc.z, hx: 0.55, hy: 1.5, hz: 0.55 });
-    }
-  });
-  trunkInst.instanceMatrix.needsUpdate = true;
-  foliageInst.instanceMatrix.needsUpdate = true;
-  foliageTopInst.instanceMatrix.needsUpdate = true;
-  if (foliageInst.instanceColor) foliageInst.instanceColor.needsUpdate = true;
-  if (foliageTopInst.instanceColor) foliageTopInst.instanceColor.needsUpdate = true;
-  trunkInst.computeBoundingSphere();
-  foliageInst.computeBoundingSphere();
-  foliageTopInst.computeBoundingSphere();
-  scene.add(trunkInst, foliageInst, foliageTopInst);
-
-  // Broadleaf / Tropical Crown Trees
-  const broadTrunkGeo = new THREE.CylinderGeometry(0.24, 0.36, 3.1, 7);
-  broadTrunkGeo.translate(0, 1.55, 0);
-  const broadCrownGeo = new THREE.IcosahedronGeometry(1.75, 0);
-  broadCrownGeo.translate(0, 4.1, 0);
-  geometries.push(broadTrunkGeo, broadCrownGeo);
-
-  const broadTrunkInst = new THREE.InstancedMesh(broadTrunkGeo, trunkMat, palmCoords.length);
-  const broadCrownInst = new THREE.InstancedMesh(broadCrownGeo, foliageMat, palmCoords.length);
-  broadTrunkInst.castShadow = true;
-  broadCrownInst.castShadow = true;
-
-  const broadPalette = ['#689E54', '#79AE5A', '#4C8B5C', '#8AB45E'];
-  palmCoords.forEach((pc, i) => {
-    const gy = computeGroundHeight(pc.x, pc.z);
-    const scale = 0.88 + ((i * 23) % 28) / 100;
-    dummy.position.set(pc.x, gy, pc.z);
-    dummy.rotation.set(0, i * 1.3, 0);
-    dummy.scale.setScalar(scale);
-    dummy.updateMatrix();
-    broadTrunkInst.setMatrixAt(i, dummy.matrix);
-    broadCrownInst.setMatrixAt(i, dummy.matrix);
-    cColor.set(broadPalette[i % broadPalette.length]);
-    broadCrownInst.setColorAt(i, cColor);
-
-    if (Math.hypot(pc.x, pc.z) < 88) {
-      staticColliders.push({ x: pc.x, y: gy + 1.2, z: pc.z, hx: 0.55, hy: 1.5, hz: 0.55 });
-    }
-  });
-  broadTrunkInst.instanceMatrix.needsUpdate = true;
-  broadCrownInst.instanceMatrix.needsUpdate = true;
-  if (broadCrownInst.instanceColor) broadCrownInst.instanceColor.needsUpdate = true;
-  broadTrunkInst.computeBoundingSphere();
-  broadCrownInst.computeBoundingSphere();
-  scene.add(broadTrunkInst, broadCrownInst);
-
-  // 11. Instanced Moving Grass Tufts & Wildflowers
-  const grassGeo = new THREE.ConeGeometry(0.18, 0.65, 4);
-  grassGeo.translate(0, 0.32, 0);
-  const flowerGeo = new THREE.DodecahedronGeometry(0.22, 0);
-  flowerGeo.translate(0, 0.5, 0);
-  geometries.push(grassGeo, flowerGeo);
-
-  const grassMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 });
-  grassMat.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = windUniform;
-    shader.vertexShader = `uniform float uTime;\n${shader.vertexShader}`.replace(
-      '#include <begin_vertex>',
-      `#include <begin_vertex>
-       transformed.x += sin(uTime * 2.8) * max(0.0, position.y) * 0.18;`,
-    );
-  };
-  const flowerMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 });
-  materials.push(grassMat, flowerMat);
-
-  const grassCoords: { x: number; z: number }[] = [];
-  for (let i = 0; i < 250; i++) {
-    const a = i * 2.39996 + 0.5;
-    const rad = 16 + Math.sqrt(i / 250) * 78;
-    const gx = Math.cos(a) * rad;
-    const gz = Math.sin(a) * rad;
-    if (!isNearRoadOrBuilding(gx, gz)) grassCoords.push({ x: gx, z: gz });
-  }
-  const grassInst = new THREE.InstancedMesh(grassGeo, grassMat, grassCoords.length);
-  const flowerCount = Math.floor(grassCoords.length / 3);
-  const flowerInst = new THREE.InstancedMesh(flowerGeo, flowerMat, flowerCount);
-  const flowerColors = ['#EC6D2C', '#E65448', '#FFE082', '#FFF9F0'];
-
-  grassCoords.forEach((gc, i) => {
-    const gy = computeGroundHeight(gc.x, gc.z);
-    dummy.position.set(gc.x, gy, gc.z);
-    dummy.rotation.set(0, i * 1.1, 0);
-    dummy.scale.setScalar(0.8 + (i % 4) * 0.18);
-    dummy.updateMatrix();
-    grassInst.setMatrixAt(i, dummy.matrix);
-    cColor.set(i % 2 === 0 ? '#74A362' : '#5F8F56');
-    grassInst.setColorAt(i, cColor);
-
-    if (i < flowerCount) {
-      dummy.position.set(gc.x + 0.35, gy, gc.z - 0.25);
-      dummy.scale.setScalar(0.85);
-      dummy.updateMatrix();
-      flowerInst.setMatrixAt(i, dummy.matrix);
-      cColor.set(flowerColors[i % flowerColors.length]);
-      flowerInst.setColorAt(i, cColor);
-    }
-  });
-  grassInst.instanceMatrix.needsUpdate = true;
-  if (grassInst.instanceColor) grassInst.instanceColor.needsUpdate = true;
-  flowerInst.instanceMatrix.needsUpdate = true;
-  if (flowerInst.instanceColor) flowerInst.instanceColor.needsUpdate = true;
-  grassInst.computeBoundingSphere();
-  flowerInst.computeBoundingSphere();
-  scene.add(grassInst, flowerInst);
 
   // 12. Instanced Sandstone Boulders & Shoreline Rocks
   const rockGeo = new THREE.DodecahedronGeometry(1.25, 0);
@@ -2076,7 +1892,6 @@ export function buildWorldEnvironment(
       sun.intensity = 1.22;
       sun.position.set(-65, 28, -50);
       coolFill.intensity = 0.28;
-      waterMat.color.set('#268380');
     } else if (mode === 'night') {
       scene.background = new THREE.Color('#18223C');
       fog.color.set('#18223C');
@@ -2089,7 +1904,6 @@ export function buildWorldEnvironment(
       sun.intensity = 0.52;
       sun.position.set(-40, 64, 30);
       coolFill.intensity = 0.22;
-      waterMat.color.set('#1E6776');
     } else if (mode === 'rain') {
       scene.background = new THREE.Color('#7C91A1');
       fog.color.set('#7C91A1');
@@ -2102,7 +1916,6 @@ export function buildWorldEnvironment(
       sun.intensity = 0.76;
       sun.position.set(35, 60, 25);
       coolFill.intensity = 0.25;
-      waterMat.color.set('#217B78');
     } else if (mode === 'fog') {
       scene.background = new THREE.Color('#DFD5C2');
       fog.color.set('#DFD5C2');
@@ -2115,7 +1928,6 @@ export function buildWorldEnvironment(
       sun.intensity = 0.88;
       sun.position.set(45, 58, 30);
       coolFill.intensity = 0.25;
-      waterMat.color.set('#21968B');
     } else {
       scene.background = new THREE.Color('#F6DAB4');
       fog.color.set('#F6DAB4');
@@ -2128,8 +1940,15 @@ export function buildWorldEnvironment(
       sun.intensity = 1.45;
       sun.position.set(58, 76, 44);
       coolFill.intensity = 0.34;
-      waterMat.color.set('#21968B');
     }
+
+    waterSystem.applyWeather(mode);
+    vegetationSystem.setWindProfile(mode, currentWindMode);
+  };
+
+  const setWindMode = (mode: WindMode) => {
+    currentWindMode = mode;
+    vegetationSystem.setWindProfile(currentWeather, mode);
   };
 
   const setSecurityGateOpen = (open: boolean) => {
@@ -2225,12 +2044,13 @@ export function buildWorldEnvironment(
     lowQualityProfile = quality === 'low';
     reducedMotionProfile = reducedMotion;
     motes.visible = !lowQualityProfile && !reducedMotionProfile;
-    flowerInst.visible = !lowQualityProfile;
+    waterSystem.applyQuality(quality);
+    vegetationSystem.setPerformanceProfile(quality, reducedMotion);
   };
 
   const updateEnvironment = (elapsed: number, dt: number) => {
     const motionTime = reducedMotionProfile ? 0 : elapsed;
-    windUniform.value = motionTime;
+    vegetationSystem.update(motionTime, dt);
 
     for (const fs of floatingSigns) {
       fs.group.position.y = fs.baseY + Math.sin(motionTime * 1.8 + fs.phase) * 0.22;
@@ -2255,11 +2075,7 @@ export function buildWorldEnvironment(
       lighthouseBeam.rotation.y = motionTime * 0.65;
     }
 
-    if (mooredBoat) {
-      mooredBoat.position.y = -0.18 + Math.sin(motionTime * 1.8) * 0.07;
-      mooredBoat.rotation.z = Math.sin(motionTime * 1.5) * 0.05;
-      mooredBoat.rotation.x = Math.cos(motionTime * 1.2) * 0.03;
-    }
+    waterSystem.update(motionTime, mooredBoat);
 
     for (const bird of soaringBirds) {
       const ang = motionTime * bird.speed + bird.phase;
@@ -2305,34 +2121,34 @@ export function buildWorldEnvironment(
 
     for (const bm of bugMeshes) {
       if (bm.mesh.visible) {
-        bm.mesh.rotation.x = elapsed * 3.2;
-        bm.mesh.rotation.y = elapsed * 4.1;
-        bm.mesh.position.y = bm.baseY + Math.sin(elapsed * 4.5 + bm.baseY) * 0.25;
+        bm.mesh.rotation.x = motionTime * 3.2;
+        bm.mesh.rotation.y = motionTime * 4.1;
+        bm.mesh.position.y = bm.baseY + Math.sin(motionTime * 4.5 + bm.baseY) * 0.25;
       }
     }
 
     for (const tg of treasureGroups) {
       if (tg.group.visible) {
-        tg.group.rotation.y = elapsed * 1.3;
-        tg.group.position.y = tg.baseY + Math.sin(elapsed * 2.2) * 0.14;
+        tg.group.rotation.y = motionTime * 1.3;
+        tg.group.position.y = tg.baseY + Math.sin(motionTime * 2.2) * 0.14;
       }
     }
 
     for (const ring of ttRings) {
       if (ring.visible) {
-        ring.rotation.y = elapsed * 1.8;
+        ring.rotation.y = motionTime * 1.8;
       }
     }
 
     for (const sr of sqlGateRings) {
-      sr.rotation.z = elapsed * 0.9;
+      sr.rotation.z = motionTime * 0.9;
     }
 
     if (deliveryBeacon && deliveryBeacon.visible) {
-      deliveryBeacon.rotation.y = elapsed * 1.4;
+      deliveryBeacon.rotation.y = motionTime * 1.4;
     }
 
-    if (rainActive) {
+    if (rainActive && !reducedMotionProfile) {
       for (let i = 0; i < rainCount; i++) {
         const drop = rainDrops[i];
         drop.y -= drop.speed * dt;
@@ -2350,7 +2166,7 @@ export function buildWorldEnvironment(
       rainInst.instanceMatrix.needsUpdate = true;
     }
 
-    motes.position.y = Math.sin(elapsed * 0.5) * 0.45;
+    motes.position.y = Math.sin(motionTime * 0.5) * 0.45;
   };
 
   const dispose = () => {
@@ -2375,6 +2191,7 @@ export function buildWorldEnvironment(
     setMemoryPadHighlight,
     setTreasureState,
     setPerformanceProfile,
+    setWindMode,
     updateEnvironment,
     dispose,
   };

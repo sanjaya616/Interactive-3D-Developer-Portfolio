@@ -31,6 +31,7 @@ export interface VersionedSaveState {
 export const DEFAULT_SETTINGS: GameSettings = {
   quality: 'high',
   weatherMode: 'sunny',
+  windMode: 'auto',
   audioEnabled: false,
   musicEnabled: true,
   sfxVolume: 0.8,
@@ -152,6 +153,13 @@ export function parseVersionedSave(raw: string | null | undefined): VersionedSav
       rawSettings.weatherMode === 'fog'
         ? rawSettings.weatherMode
         : base.settings.weatherMode;
+    const validWind =
+      rawSettings.windMode === 'auto' ||
+      rawSettings.windMode === 'calm' ||
+      rawSettings.windMode === 'normal' ||
+      rawSettings.windMode === 'strong'
+        ? rawSettings.windMode
+        : base.settings.windMode;
     const validCamera =
       rawSettings.cameraMode === 'chase' ||
       rawSettings.cameraMode === 'close' ||
@@ -206,6 +214,7 @@ export function parseVersionedSave(raw: string | null | undefined): VersionedSav
       settings: {
         quality: validQuality,
         weatherMode: validWeather,
+        windMode: validWind,
         audioEnabled: typeof rawSettings.audioEnabled === 'boolean' ? rawSettings.audioEnabled : base.settings.audioEnabled,
         musicEnabled: typeof rawSettings.musicEnabled === 'boolean' ? rawSettings.musicEnabled : base.settings.musicEnabled,
         sfxVolume: clampVol(rawSettings.sfxVolume, base.settings.sfxVolume),

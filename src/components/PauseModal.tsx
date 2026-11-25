@@ -15,10 +15,11 @@ import {
   Sliders,
   Volume2,
   VolumeX,
+  Wind,
 } from 'lucide-react';
 import { WEATHER_OPTIONS } from '../data/portfolioData';
 import { useAppState } from '../state/AppStateContext';
-import type { GameSettings, QualityLevel } from '../types/portfolio';
+import type { GameSettings, QualityLevel, WindMode } from '../types/portfolio';
 
 interface PauseModalProps {
   open: boolean;
@@ -144,6 +145,47 @@ export const PauseModal: React.FC<PauseModalProps> = ({
                     }`}
                   >
                     {w.label.split(' ')[1] || w.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between text-xs font-extrabold text-[#26211E] mb-1.5">
+                <span className="flex items-center gap-1.5">
+                  <Wind className="w-3.5 h-3.5 text-[#21968B]" />
+                  <span>WIND &amp; BREEZE</span>
+                </span>
+                <span className="text-[10px] font-bold text-[#61564E]">
+                  {(settings.windMode ?? 'auto') === 'auto'
+                    ? settings.weatherMode === 'rain'
+                      ? 'Auto: Strong Breeze'
+                      : settings.weatherMode === 'fog' || settings.weatherMode === 'night'
+                        ? 'Auto: Calm Wind'
+                        : 'Auto: Normal Breeze'
+                    : 'Manual Override'}
+                </span>
+              </div>
+              <div className="grid grid-cols-4 gap-1.5">
+                {(
+                  [
+                    { id: 'auto', label: 'Weather Auto' },
+                    { id: 'calm', label: 'Calm' },
+                    { id: 'normal', label: 'Normal' },
+                    { id: 'strong', label: 'Strong' },
+                  ] as { id: WindMode; label: string }[]
+                ).map((w) => (
+                  <button
+                    key={w.id}
+                    type="button"
+                    onClick={() => onUpdateSettings({ windMode: w.id })}
+                    className={`py-1.5 px-1 rounded-lg text-[11px] font-extrabold border cursor-pointer transition-colors ${
+                      (settings.windMode ?? 'auto') === w.id
+                        ? 'bg-[#21968B] text-[#FFF9F0] border-[#26211E]'
+                        : 'bg-[#FFF9F0] text-[#26211E] border-[#D9C3A3] hover:border-[#26211E]'
+                    }`}
+                  >
+                    {w.label}
                   </button>
                 ))}
               </div>

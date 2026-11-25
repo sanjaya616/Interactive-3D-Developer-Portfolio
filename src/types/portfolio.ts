@@ -4,6 +4,8 @@ export type QualityLevel = 'low' | 'medium' | 'high';
 
 export type WeatherMode = 'sunny' | 'sunset' | 'night' | 'rain' | 'fog';
 
+export type WindMode = 'auto' | 'calm' | 'normal' | 'strong';
+
 export type CameraMode = 'chase' | 'close' | 'far' | 'topdown' | 'orbit';
 
 export type LandmarkCategory = 'Portfolio' | 'Challenge' | 'Circuit';
@@ -172,6 +174,7 @@ export interface VehicleConfig {
 export interface GameSettings {
   quality: QualityLevel;
   weatherMode: WeatherMode;
+  windMode?: WindMode;
   audioEnabled: boolean;
   musicEnabled: boolean;
   sfxVolume: number;
