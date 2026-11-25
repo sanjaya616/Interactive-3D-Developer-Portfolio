@@ -1,0 +1,129 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Nunito", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Amatic SC", cursive, sans-serif;
+  --color-cream: #FFF9F0;
+  --color-sand: #F5E9D4;
+  --color-sand-deep: #E6D3B5;
+  --color-orange: #EC6D2C;
+  --color-orange-dark: #CC5318;
+  --color-coral: #E65448;
+  --color-turquoise: #21968B;
+  --color-sage: #5E915E;
+  --color-charcoal: #26211E;
+  --color-charcoal-muted: #61564E;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  html,
+  body {
+    background-color: #FFF9F0;
+    color: #26211E;
+    font-family: "Nunito", ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    margin: 0;
+    padding: 0;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: "Amatic SC", cursive, sans-serif;
+    letter-spacing: 0.025em;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+/* Tactile card & button micro-elevation (compositor-only, <=200ms) */
+.ui-card {
+  background-color: #FFF9F0;
+  border: 1.5px solid #D9C3A3;
+  border-radius: 1rem;
+  box-shadow: 0 2px 10px -2px rgba(38, 33, 30, 0.06);
+}
+
+.ui-card-interactive {
+  background-color: #FFF9F0;
+  border: 1.5px solid #26211E;
+  border-radius: 1rem;
+  box-shadow: 0 4px 0 #26211E;
+  transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 160ms cubic-bezier(0.22, 1, 0.36, 1), background-color 160ms ease;
+}
+
+.ui-card-interactive:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0 #26211E;
+}
+
+.ui-card-interactive:active {
+  transform: translateY(1px);
+  box-shadow: 0 2px 0 #26211E;
+}
+
+@keyframes hudToastIn {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -10px, 0) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.animate-hud-toast {
+  animation: hudToastIn 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes modalPopIn {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.animate-modal-pop {
+  animation: modalPopIn 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+*:focus-visible {
+  outline: 3px solid #21968B;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+html[data-reduced-motion='true'] {
+  scroll-behavior: auto;
+}
+
+html[data-reduced-motion='true'] *,
+html[data-reduced-motion='true'] *::before,
+html[data-reduced-motion='true'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}

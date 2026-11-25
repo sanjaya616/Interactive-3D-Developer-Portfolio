@@ -1,0 +1,296 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 4.1: Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Pillar 3: Hardened Primitive Helpers ---
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSignedInVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(uid) {
+      return isSignedInVerified() && request.auth.uid == uid;
+    }
+
+    // Pillar 8 compliant admin email check (no get/exists for list queries)
+    function isAdminEmail() {
+      return isSignedInVerified() && request.auth.token.email == 'sanjayalasnan327@gmail.com';
+    }
+
+    function isAdmin() {
+      return isAdminEmail() || (isSignedInVerified() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    function isHex64(val) {
+      return val is string && val.size() == 64 && val.matches('^[a-f0-9]{64}$');
+    }
+
+    function isBoundedStringList(val, maxItems) {
+      return val is list && val.size() <= maxItems && (val.size() == 0 || (val[0] is string && val[0].size() >= 1 && val[0].size() <= 80));
+    }
+
+    // --- Validation Blueprint: UserCloudSave ---
+    function isValidVehicleMap(v) {
+      return v is map
+        && v.keys().hasAll(['chassisType', 'paintColor', 'accentColor', 'skinId', 'wheelStyle', 'accessory', 'headlightEffect', 'plateText', 'engineTier', 'suspensionTier', 'boostTier'])
+        && v.keys().hasOnly(['chassisType', 'paintColor', 'accentColor', 'skinId', 'wheelStyle', 'accessory', 'headlightEffect', 'plateText', 'engineTier', 'suspensionTier', 'boostTier'])
+        && v.chassisType in ['buggy', 'rover', 'rally']
+        && v.paintColor is string && v.paintColor.size() <= 16
+        && v.accentColor is string && v.accentColor.size() <= 16
+        && v.skinId is string && v.skinId.size() >= 1 && v.skinId.size() <= 32
+        && v.wheelStyle in ['all-terrain', 'sport', 'dune']
+        && v.accessory in ['none', 'spare-tire', 'roof-lights', 'cargo-box', 'spoiler']
+        && v.headlightEffect in ['warm-halogen', 'cool-led', 'amber-rally']
+        && v.plateText is string && v.plateText.size() >= 1 && v.plateText.size() <= 8
+        && v.engineTier in [1, 2, 3]
+        && v.suspensionTier in [1, 2, 3]
+        && v.boostTier in [1, 2, 3];
+    }
+
+    function isValidSettingsMap(s) {
+      return s is map
+        && s.keys().hasAll(['quality', 'weatherMode', 'musicEnabled', 'sfxVolume', 'musicVolume', 'cameraMode', 'showTouchControls', 'ghostEnabled', 'headlightsOn', 'reducedMotion'])
+        && s.keys().hasOnly(['quality', 'weatherMode', 'audioEnabled', 'musicEnabled', 'sfxVolume', 'musicVolume', 'cameraMode', 'showTouchControls', 'ghostEnabled', 'headlightsOn', 'reducedMotion'])
+        && s.quality in ['low', 'medium', 'high']
+        && s.weatherMode in ['sunny', 'sunset', 'night', 'rain', 'fog']
+        && (!s.keys().hasAny(['audioEnabled']) || s.audioEnabled is bool)
+        && s.musicEnabled is bool
+        && s.sfxVolume is number && s.sfxVolume >= 0 && s.sfxVolume <= 1
+        && s.musicVolume is number && s.musicVolume >= 0 && s.musicVolume <= 1
+        && s.cameraMode in ['chase', 'close', 'far', 'topdown', 'orbit']
+        && s.showTouchControls in ['auto', 'always', 'off']
+        && s.ghostEnabled is bool
+        && s.headlightsOn is bool
+        && s.reducedMotion is bool;
+    }
+
+    function isValidUserCloudSave(data, targetUid) {
+      return data.keys().hasAll([
+          'uid', 'displayName', 'vehicle', 'settings',
+          'visitedLocations', 'openedProjects', 'collectedIds',
+          'discoveredSecrets', 'completedChallenges', 'unlockedAchievements',
+          'distanceDrivenMeters', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'displayName', 'vehicle', 'settings',
+          'visitedLocations', 'openedProjects', 'collectedIds',
+          'discoveredSecrets', 'completedChallenges', 'unlockedAchievements',
+          'bestLapSeconds', 'lastLapSeconds', 'distanceDrivenMeters',
+          'createdAt', 'updatedAt'
+        ])
+        && data.uid == targetUid
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 32
+        && isValidVehicleMap(data.vehicle)
+        && isValidSettingsMap(data.settings)
+        && isBoundedStringList(data.visitedLocations, 20)
+        && isBoundedStringList(data.openedProjects, 30)
+        && isBoundedStringList(data.collectedIds, 40)
+        && isBoundedStringList(data.discoveredSecrets, 20)
+        && isBoundedStringList(data.completedChallenges, 20)
+        && isBoundedStringList(data.unlockedAchievements, 20)
+        && (!data.keys().hasAny(['bestLapSeconds']) || data.bestLapSeconds == null || (data.bestLapSeconds is number && data.bestLapSeconds >= 12 && data.bestLapSeconds <= 600))
+        && (!data.keys().hasAny(['lastLapSeconds']) || data.lastLapSeconds == null || (data.lastLapSeconds is number && data.lastLapSeconds >= 5 && data.lastLapSeconds <= 600))
+        && data.distanceDrivenMeters is number && data.distanceDrivenMeters >= 0 && data.distanceDrivenMeters <= 100000000
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // --- Validation Blueprint: LeaderboardRecord ---
+    function isValidLeaderboardRecord(data, targetUid) {
+      return data.keys().hasAll([
+          'uid', 'driverName', 'vehicleType', 'lapSeconds',
+          'runId', 'serverSig', 'status', 'achievedAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'driverName', 'vehicleType', 'lapSeconds',
+          'runId', 'serverSig', 'status', 'achievedAt', 'updatedAt'
+        ])
+        && data.uid == targetUid
+        && data.driverName is string && data.driverName.size() >= 2 && data.driverName.size() <= 24 && data.driverName.matches('^[a-zA-Z0-9 ._-]{2,24}$')
+        && data.vehicleType is string && data.vehicleType.size() >= 3 && data.vehicleType.size() <= 40
+        && data.lapSeconds is number && data.lapSeconds >= 12 && data.lapSeconds <= 600
+        && isValidId(data.runId) && data.runId.size() >= 8 && data.runId.size() <= 64
+        && isHex64(data.serverSig)
+        && data.status == 'verified'
+        && data.achievedAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // --- Validation Blueprint: WhisperEntry ---
+    function isAllowedCountry(code) {
+      return code in [
+        'LK', 'US', 'GB', 'IN', 'JP', 'DE', 'CA', 'AU', 'SG', 'FR',
+        'BR', 'KR', 'NL', 'AE', 'MY', 'NZ', 'SE', 'CH', 'ES', 'GL'
+      ];
+    }
+
+    function isValidWhisper(data, whisperId) {
+      return data.keys().hasAll([
+          'id', 'authorUid', 'authorName', 'countryCode', 'message',
+          'status', 'reportCount', 'serverSig', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'authorUid', 'authorName', 'countryCode', 'message',
+          'status', 'reportCount', 'serverSig', 'createdAt', 'updatedAt'
+        ])
+        && data.id == whisperId
+        && isValidId(data.authorUid)
+        && data.authorName is string && data.authorName.size() >= 2 && data.authorName.size() <= 24 && data.authorName.matches('^[a-zA-Z0-9 ._-]{2,24}$')
+        && isAllowedCountry(data.countryCode)
+        && data.message is string && data.message.size() >= 1 && data.message.size() <= 30
+        && data.status in ['published', 'flagged', 'removed']
+        && data.reportCount is int && data.reportCount >= 0 && data.reportCount <= 100
+        && isHex64(data.serverSig)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // --- Validation Blueprint: WhisperReport ---
+    function isValidWhisperReport(data, whisperId, reporterUid) {
+      return data.keys().hasAll(['whisperId', 'reporterUid', 'reason', 'createdAt'])
+        && data.keys().hasOnly(['whisperId', 'reporterUid', 'reason', 'createdAt'])
+        && data.whisperId == whisperId
+        && data.reporterUid == reporterUid
+        && data.reason in ['spam', 'offensive', 'harassment', 'other']
+        && data.createdAt == request.time;
+    }
+
+    // --- Collection: /users/{uid} (Owner-Only Cloud Save) ---
+    match /users/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if false;
+      allow create: if isValidId(uid)
+        && isOwner(uid)
+        && isValidUserCloudSave(incoming(), uid)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(uid)
+        && isOwner(uid)
+        && isValidUserCloudSave(incoming(), uid)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(uid) && (isOwner(uid) || isAdmin());
+    }
+
+    // --- Collection: /leaderboard/{uid} (Verified Global Racing Standings) ---
+    match /leaderboard/{uid} {
+      allow get: if isValidId(uid) && (existing().status == 'verified' || isOwner(uid) || isAdmin());
+      allow list: if resource.data.status == 'verified';
+      allow create: if isValidId(uid)
+        && isOwner(uid)
+        && isValidLeaderboardRecord(incoming(), uid)
+        && incoming().achievedAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(uid)
+        && isSignedInVerified()
+        && isValidLeaderboardRecord(incoming(), uid)
+        && (
+          isAdmin()
+          || (
+            isOwner(uid)
+            && incoming().uid == existing().uid
+            && incoming().lapSeconds < existing().lapSeconds
+            && request.time >= existing().updatedAt + duration.value(5, 's')
+            && incoming().achievedAt == request.time
+            && incoming().updatedAt == request.time
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'driverName', 'vehicleType', 'lapSeconds', 'runId', 'serverSig', 'achievedAt', 'updatedAt'
+            ])
+          )
+        );
+      allow delete: if isValidId(uid) && (isOwner(uid) || isAdmin());
+    }
+
+    // --- Collection: /whispers/{whisperId} (Public Short Guestbook Messages) ---
+    match /whispers/{whisperId} {
+      allow get: if isValidId(whisperId) && (
+        existing().status == 'published'
+        || (isSignedInVerified() && existing().authorUid == request.auth.uid)
+        || isAdmin()
+      );
+      allow list: if resource.data.status == 'published'
+        || (isSignedInVerified() && (resource.data.authorUid == request.auth.uid || isAdminEmail()));
+      allow create: if isValidId(whisperId)
+        && whisperId.size() >= 4 && whisperId.size() <= 64
+        && isSignedInVerified()
+        && isValidWhisper(incoming(), whisperId)
+        && incoming().authorUid == request.auth.uid
+        && incoming().status == 'published'
+        && incoming().reportCount == 0
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(whisperId)
+        && isSignedInVerified()
+        && isValidWhisper(incoming(), whisperId)
+        && incoming().id == existing().id
+        && incoming().authorUid == existing().authorUid
+        && incoming().authorName == existing().authorName
+        && incoming().countryCode == existing().countryCode
+        && incoming().message == existing().message
+        && incoming().serverSig == existing().serverSig
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (
+            isAdmin()
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          )
+          || (
+            existing().status != 'removed'
+            && incoming().reportCount == existing().reportCount + 1
+            && incoming().status == (incoming().reportCount >= 3 ? 'flagged' : existing().status)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['reportCount', 'status', 'updatedAt'])
+            && !exists(/databases/$(database)/documents/whispers/$(whisperId)/reports/$(request.auth.uid))
+            && existsAfter(/databases/$(database)/documents/whispers/$(whisperId)/reports/$(request.auth.uid))
+          )
+        );
+      allow delete: if isValidId(whisperId) && (isAdmin() || (isSignedInVerified() && existing().authorUid == request.auth.uid));
+
+      // --- Subcollection: /whispers/{whisperId}/reports/{reporterUid} ---
+      match /reports/{reporterUid} {
+        allow get: if isValidId(whisperId) && isValidId(reporterUid) && (isOwner(reporterUid) || isAdmin());
+        allow list: if isAdminEmail();
+        allow create: if isValidId(whisperId)
+          && isValidId(reporterUid)
+          && isOwner(reporterUid)
+          && isValidWhisperReport(incoming(), whisperId, reporterUid)
+          && exists(/databases/$(database)/documents/whispers/$(whisperId))
+          && get(/databases/$(database)/documents/whispers/$(whisperId)).data.status != 'removed';
+        allow update, delete: if isValidId(whisperId) && isValidId(reporterUid) && isAdmin();
+      }
+    }
+
+    // --- Collection: /admins/{uid} ---
+    match /admins/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdminEmail());
+      allow list, create, update, delete: if false;
+    }
+
+    // --- Collection: /test/connection (Startup Health Verification) ---
+    match /test/connection {
+      allow get: if isSignedIn() || request.time != null;
+      allow list, write: if false;
+    }
+  }
+}

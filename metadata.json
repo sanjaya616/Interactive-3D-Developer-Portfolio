@@ -1,0 +1,6 @@
+{
+  "name": "Sanjaya's World — Interactive 3D Developer Portfolio",
+  "description": "Playable stylized low-poly 3D open-world developer portfolio built with React, Three.js, Rapier physics, GSAP, and Howler.js.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
