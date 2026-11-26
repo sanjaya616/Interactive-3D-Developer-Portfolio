@@ -14,6 +14,7 @@ export const LeaderboardPage: React.FC = () => {
     lastLapSeconds,
     authUser,
     authBusy,
+    authError,
     playerDisplayName,
     signInGoogle,
   } = useAppState();
@@ -179,6 +180,11 @@ export const LeaderboardPage: React.FC = () => {
                   <LogIn className="w-4 h-4" />
                   <span>{authBusy ? 'Signing in...' : 'Sign in with Google'}</span>
                 </button>
+                {authError && (
+                  <p role="alert" className="text-[11px] font-bold text-[#E65448]">
+                    {authError}
+                  </p>
+                )}
               </div>
             )}
 

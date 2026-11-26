@@ -79,7 +79,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
   return (
     <div
       data-testid="touch-controls"
-      className="fixed inset-x-0 bottom-3 sm:bottom-4 z-20 px-3 sm:px-6 flex items-end justify-between gap-2 pointer-events-none select-none touch-none"
+      className="fixed inset-x-0 bottom-[max(0.75rem,env(safe-area-inset-bottom))] sm:bottom-4 [@media(max-height:480px)]:bottom-2 z-20 px-[max(0.75rem,env(safe-area-inset-left))] sm:px-6 flex items-end justify-between gap-2 pointer-events-none select-none touch-none"
     >
       {/* Left: Landmark Interact Pill + Steering Pad */}
       <div className="flex flex-col items-start gap-2 pointer-events-auto touch-none">
@@ -141,7 +141,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
               () => onChange({ handbrake: true }),
               () => onChange({ handbrake: false }),
             )}
-            className={`h-9 px-3 rounded-xl bg-[#26211E]/95 border-[1.5px] border-[#26211E] shadow-[0_2px_0_#61564E] text-[10px] font-extrabold tracking-wider text-[#FFF9F0] touch-none cursor-pointer ${activeCls('drift')}`}
+            className={`min-h-[44px] min-w-[44px] h-11 px-3 rounded-xl bg-[#26211E]/95 border-[1.5px] border-[#26211E] shadow-[0_2px_0_#61564E] text-[10px] font-extrabold tracking-wider text-[#FFF9F0] touch-none cursor-pointer ${activeCls('drift')}`}
           >
             DRF
           </button>
@@ -165,7 +165,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
               setPressed('jump', false);
             }}
             onPointerCancel={() => setPressed('jump', false)}
-            className={`h-9 px-3 rounded-xl bg-[#F5E9D4]/95 border-[1.5px] border-[#26211E] shadow-[0_2px_0_#26211E] text-[10px] font-extrabold tracking-wider text-[#26211E] touch-none cursor-pointer ${activeCls('jump')}`}
+            className={`min-h-[44px] min-w-[44px] h-11 px-3 rounded-xl bg-[#F5E9D4]/95 border-[1.5px] border-[#26211E] shadow-[0_2px_0_#26211E] text-[10px] font-extrabold tracking-wider text-[#26211E] touch-none cursor-pointer ${activeCls('jump')}`}
           >
             JMP
           </button>
@@ -178,7 +178,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
               () => onChange({ boost: true, throttle: 1 }),
               () => onChange({ boost: false, throttle: 0 }),
             )}
-            className={`h-9 px-3 rounded-xl bg-[#21968B]/95 border-[1.5px] border-[#26211E] shadow-[0_2px_0_#26211E] flex items-center justify-center gap-1 text-[10px] font-extrabold tracking-wider text-[#FFF9F0] touch-none cursor-pointer ${activeCls('boost')}`}
+            className={`min-h-[44px] min-w-[44px] h-11 px-3 rounded-xl bg-[#21968B]/95 border-[1.5px] border-[#26211E] shadow-[0_2px_0_#26211E] flex items-center justify-center gap-1 text-[10px] font-extrabold tracking-wider text-[#FFF9F0] touch-none cursor-pointer ${activeCls('boost')}`}
           >
             <Zap className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">BST</span>

@@ -5,11 +5,26 @@ import firebaseConfig from '../../firebase-applet-config.json';
 
 const isBrowser = typeof window !== 'undefined';
 
-const app = isBrowser
-  ? getApps().length
-    ? getApp()
-    : initializeApp(firebaseConfig)
-  : null;
+function isConfiguredValue(v: unknown): v is string {
+  return (
+    typeof v === 'string' &&
+    v.trim().length > 0 &&
+    !/^(YOUR_|MY_|TODO_|remixed-project-id|CHANGE_ME)/i.test(v.trim())
+  );
+}
+
+export const FIREBASE_CONFIGURED =
+  isConfiguredValue(firebaseConfig.apiKey) &&
+  isConfiguredValue(firebaseConfig.projectId) &&
+  isConfiguredValue(firebaseConfig.appId) &&
+  isConfiguredValue(firebaseConfig.firestoreDatabaseId);
+
+const app =
+  isBrowser && FIREBASE_CONFIGURED
+    ? getApps().length
+      ? getApp()
+      : initializeApp(firebaseConfig)
+    : null;
 
 export const db = app ? getFirestore(app, firebaseConfig.firestoreDatabaseId) : null;
 export const auth = app ? getAuth(app) : null;

@@ -6,6 +6,7 @@ import { PADDOCK_CHECKPOINTS } from './src/data/portfolioData';
 import { createInitialSaveState } from './src/state/saveValidation';
 import { mergeCloudAndLocalSave } from './src/firebase/services';
 import {
+  resolveServerSigningSecret,
   SlidingWindowLimiter,
   signLeaderboardRecord,
   signRunToken,
@@ -323,4 +324,37 @@ test('firestore.rules enforces Dirty Dozen, Eight Pillars, and PII safety invari
   for (const m of listMatches) {
     assert.equal(/\b(get|exists|isAdmin\()\b/.test(m[1]), false, `allow list contains lookup: ${m[1]}`);
   }
+});
+
+test('resolveServerSigningSecret enforces persistent non-placeholder secret in production', () => {
+  const prodMissing = resolveServerSigningSecret(undefined, 'production');
+  assert.equal(prodMissing.configured, false);
+  assert.equal(prodMissing.secret, null);
+
+  const prodPlaceholder = resolveServerSigningSecret('CHANGE_ME_SERVER_SECRET', 'production');
+  assert.equal(prodPlaceholder.configured, false);
+  assert.equal(prodPlaceholder.secret, null);
+
+  const prodShort = resolveServerSigningSecret('short', 'production');
+  assert.equal(prodShort.configured, false);
+  assert.equal(prodShort.secret, null);
+
+  const prodValid = resolveServerSigningSecret(TEST_SECRET, 'production');
+  assert.equal(prodValid.configured, true);
+  assert.equal(prodValid.secret, TEST_SECRET);
+
+  const devFallback = resolveServerSigningSecret(undefined, 'development');
+  assert.equal(devFallback.configured, false);
+  assert.ok(devFallback.secret && devFallback.secret.length >= 32);
+});
+
+test('SlidingWindowLimiter keeps internal key map bounded under high cardinality', () => {
+  const limiter = new SlidingWindowLimiter();
+  const baseNow = 10_000_000;
+  for (let i = 0; i < 1200; i++) {
+    const res = limiter.check(`client-${i}`, 5, 60_000, 0, baseNow + i * 200);
+    assert.equal(res.allowed, true);
+  }
+  const mapSize = (limiter as unknown as { hits: Map<string, number[]> }).hits.size;
+  assert.ok(mapSize <= 1001, `expected bounded limiter size, got ${mapSize}`);
 });

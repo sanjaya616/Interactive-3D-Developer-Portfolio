@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import type { SceneManager } from '../game/sceneManager';
+import type { DevPerfStats, SceneManager } from '../game/sceneManager';
 import type {
   GameHudSnapshot,
   GamePhase,
@@ -36,6 +36,7 @@ interface GameCanvasProps {
   onCollectiblePicked: (id: string, label: string, found: number, total: number) => void;
   onToast: (message: string) => void;
   onRaceLapCompleted: (lapSeconds: number, ghostFrames: GhostSample[]) => void;
+  onDevTelemetry?: (stats: DevPerfStats) => void;
   managerRef: React.MutableRefObject<SceneManager | null>;
 }
 
@@ -66,6 +67,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   onCollectiblePicked,
   onToast,
   onRaceLapCompleted,
+  onDevTelemetry,
   managerRef,
 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -86,6 +88,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     onCollectiblePicked,
     onToast,
     onRaceLapCompleted,
+    onDevTelemetry,
   });
 
   callbacksRef.current = {
@@ -105,6 +108,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     onCollectiblePicked,
     onToast,
     onRaceLapCompleted,
+    onDevTelemetry,
   };
 
   useEffect(() => {
@@ -145,6 +149,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           onToast: (msg) => callbacksRef.current.onToast(msg),
           onRaceLapCompleted: (lapSeconds, ghostFrames) =>
             callbacksRef.current.onRaceLapCompleted(lapSeconds, ghostFrames),
+          onDevTelemetry: import.meta.env.DEV
+            ? (stats) => callbacksRef.current.onDevTelemetry?.(stats)
+            : undefined,
         },
       );
       managerRef.current = instance;

@@ -28,6 +28,20 @@ import { createVehicleRig, type VehicleRig } from './vehicleModel';
 import { ensureRapierReady, RapierVehiclePhysics } from './vehiclePhysics';
 import { buildWorldEnvironment, type WorldBuildResult } from './worldEnvironment';
 
+export interface DevPerfStats {
+  fps: number;
+  frameMs: number;
+  drawCalls: number;
+  triangles: number;
+  geometries: number;
+  textures: number;
+  quality: GameSettings['quality'];
+  isSoftwareGl: boolean;
+}
+
+const _yAxis = new THREE.Vector3(0, 1, 0);
+const _tmpVec2 = new THREE.Vector2();
+
 export interface SceneManagerCallbacks {
   onReady: () => void;
   onHudUpdate: (snapshot: GameHudSnapshot) => void;
@@ -45,6 +59,7 @@ export interface SceneManagerCallbacks {
   onCollectiblePicked?: (id: string, label: string, found: number, total: number) => void;
   onToast?: (message: string) => void;
   onRaceLapCompleted?: (lapSeconds: number, ghostFrames: GhostSample[]) => void;
+  onDevTelemetry?: (stats: DevPerfStats) => void;
 }
 
 function detectSoftwareGl(): boolean {
@@ -109,6 +124,12 @@ export class SceneManager {
   }[] = [];
   private dustCursor = 0;
   private dustDummy = new THREE.Object3D();
+  private dustNeedsClear = false;
+  private dustAnyActive = false;
+
+  // DEV-only performance monitor accumulators
+  private devAccumMs = 0;
+  private devFrames = 0;
 
   // Pooled tire skid mark ring buffer (96 instances)
   private skidMesh: THREE.InstancedMesh | null = null;
@@ -247,12 +268,14 @@ export class SceneManager {
     const vehicleRig = createVehicleRig(initialVehicle);
     vehicleRig.root.position.set(0, 0, 5.5);
     const ambientDark = this.settings.weatherMode === 'night' || this.settings.weatherMode === 'sunset';
+    vehicleRig.setReducedMotion(this.settings.reducedMotion);
     vehicleRig.setHeadlightsOn(this.settings.headlightsOn, ambientDark);
     scene.add(vehicleRig.root);
     this.vehicleRig = vehicleRig;
 
     // Translucent Ghost Vehicle for Paddock Replay
     const ghostRig = createVehicleRig(initialVehicle);
+    ghostRig.setReducedMotion(this.settings.reducedMotion);
     ghostRig.setGhostMode(true);
     ghostRig.root.visible = false;
     scene.add(ghostRig.root);
@@ -278,6 +301,7 @@ export class SceneManager {
       dustMesh.setMatrixAt(i, this.dustDummy.matrix);
     }
     dustMesh.instanceMatrix.needsUpdate = true;
+    dustMesh.visible = !this.settings.reducedMotion && this.settings.quality !== 'low';
     scene.add(dustMesh);
     this.dustMesh = dustMesh;
 
@@ -445,7 +469,7 @@ export class SceneManager {
       const yaw = Math.PI * 0.5;
       this.physics.teleportTo(sx, sz, yaw);
       this.vehicleRig.root.position.set(sx, 0, sz);
-      this.vehicleRig.root.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+      this.vehicleRig.root.quaternion.setFromAxisAngle(_yAxis, yaw);
       this.cameraRig.snapToVehicle(this.vehicleRig.root.position, this.vehicleRig.root.quaternion);
       this.renderer?.render(this.scene!, this.cameraRig.camera);
     }
@@ -472,6 +496,11 @@ export class SceneManager {
       this.applyQualityToRenderer(this.renderer);
     }
     this.cameraRig?.setReducedMotion(next.reducedMotion);
+    this.vehicleRig?.setReducedMotion(next.reducedMotion);
+    this.ghostRig?.setReducedMotion(next.reducedMotion);
+    if (this.dustMesh) {
+      this.dustMesh.visible = !next.reducedMotion && next.quality !== 'low';
+    }
     this.worldEnv?.applyWeatherMode(next.weatherMode, false);
     this.worldEnv?.setWindMode(next.windMode ?? 'auto');
     this.worldEnv?.setPerformanceProfile(
@@ -510,13 +539,13 @@ export class SceneManager {
 
   teleportToLandmark(landmark: WorldLandmark): void {
     if (!this.physics || !this.vehicleRig || !this.cameraRig) return;
-    const dirToOrigin = new THREE.Vector2(-landmark.position.x, -landmark.position.z).normalize();
-    const spawnX = landmark.position.x + dirToOrigin.x * 3.0;
-    const spawnZ = landmark.position.z + dirToOrigin.y * 3.0;
-    const yaw = Math.atan2(dirToOrigin.x, dirToOrigin.y);
+    _tmpVec2.set(-landmark.position.x, -landmark.position.z).normalize();
+    const spawnX = landmark.position.x + _tmpVec2.x * 3.0;
+    const spawnZ = landmark.position.z + _tmpVec2.y * 3.0;
+    const yaw = Math.atan2(_tmpVec2.x, _tmpVec2.y);
     this.physics.teleportTo(spawnX, spawnZ, yaw);
     this.vehicleRig.root.position.set(spawnX, landmark.position.y ?? 0, spawnZ);
-    this.vehicleRig.root.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+    this.vehicleRig.root.quaternion.setFromAxisAngle(_yAxis, yaw);
     this.cameraRig.snapToVehicle(
       this.vehicleRig.root.position,
       this.vehicleRig.root.quaternion,
@@ -558,18 +587,32 @@ export class SceneManager {
     const pos = this.vehicleRig.root.position;
     const speedKmh = speedMsToKmh(this.physics.forwardSpeed);
 
-    const countKind = (kind: 'orb' | 'token' | 'fragment' | 'secret') => {
-      const defs = WORLD_COLLECTIBLES.filter((c) => c.kind === kind);
-      return {
-        found: defs.filter((c) => this.collectedSet.has(c.id)).length,
-        total: defs.length,
-      };
-    };
+    let orbsFound = 0;
+    let totalOrbs = 0;
+    let tokensFound = 0;
+    let totalTokens = 0;
+    let fragmentsFound = 0;
+    let totalFragments = 0;
+    let secretsFound = 0;
+    let totalSecrets = 0;
 
-    const orbs = countKind('orb');
-    const tokens = countKind('token');
-    const fragments = countKind('fragment');
-    const secrets = countKind('secret');
+    for (let i = 0; i < WORLD_COLLECTIBLES.length; i++) {
+      const c = WORLD_COLLECTIBLES[i];
+      const collected = this.collectedSet.has(c.id);
+      if (c.kind === 'orb') {
+        totalOrbs++;
+        if (collected) orbsFound++;
+      } else if (c.kind === 'token') {
+        totalTokens++;
+        if (collected) tokensFound++;
+      } else if (c.kind === 'fragment') {
+        totalFragments++;
+        if (collected) fragmentsFound++;
+      } else if (c.kind === 'secret') {
+        totalSecrets++;
+        if (collected) secretsFound++;
+      }
+    }
 
     this.callbacks.onHudUpdate({
       speedKmh,
@@ -585,20 +628,21 @@ export class SceneManager {
       playerZ: pos.z,
       headingRad: this.physics.getYaw(),
       distanceDrivenMeters: this.physics.distanceDriven,
-      orbsFound: orbs.found,
-      totalOrbs: orbs.total,
-      tokensFound: tokens.found,
-      totalTokens: tokens.total,
-      fragmentsFound: fragments.found,
-      totalFragments: fragments.total,
-      secretsFound: secrets.found,
-      totalSecrets: secrets.total,
+      orbsFound,
+      totalOrbs,
+      tokensFound,
+      totalTokens,
+      fragmentsFound,
+      totalFragments,
+      secretsFound,
+      totalSecrets,
       activeChallenge: this.challengeMgr.getActiveChallengeHud(),
       race: this.challengeMgr.getRaceHudState(this.settings.ghostEnabled),
     });
   }
 
   private spawnDust(x: number, y: number, z: number, intensity = 1): void {
+    if (this.settings.reducedMotion || this.settings.quality === 'low') return;
     const p = this.dustParticles[this.dustCursor];
     this.dustCursor = (this.dustCursor + 1) % this.dustParticles.length;
     p.x = x + (Math.random() - 0.5) * 1.1;
@@ -609,6 +653,7 @@ export class SceneManager {
     p.vz = (Math.random() - 0.5) * 1.8 * intensity;
     p.maxLife = 0.45 + Math.random() * 0.25;
     p.life = p.maxLife;
+    this.dustAnyActive = true;
   }
 
   private laySkidMarks(pos: THREE.Vector3, yaw: number): void {
@@ -631,9 +676,13 @@ export class SceneManager {
 
   private updateDust(dt: number): void {
     if (!this.dustMesh) return;
+    if (!this.dustAnyActive && !this.dustNeedsClear) return;
+
+    let anyAlive = false;
     for (let i = 0; i < this.dustParticles.length; i++) {
       const p = this.dustParticles[i];
       if (p.life > 0) {
+        anyAlive = true;
         p.life -= dt;
         p.x += p.vx * dt;
         p.y += p.vy * dt;
@@ -649,6 +698,8 @@ export class SceneManager {
       this.dustMesh.setMatrixAt(i, this.dustDummy.matrix);
     }
     this.dustMesh.instanceMatrix.needsUpdate = true;
+    this.dustNeedsClear = this.dustAnyActive && !anyAlive;
+    this.dustAnyActive = anyAlive;
   }
 
   private handleResize = (): void => {
@@ -751,15 +802,16 @@ export class SceneManager {
       }
 
       const speedKmh = speedMsToKmh(this.physics.forwardSpeed);
-      const dustRate =
-        this.settings.quality === 'low' ? 0.08 : this.physics.isBoosting ? 0.65 : 0.25;
-      if (
-        !locked &&
-        speedKmh > 6 &&
-        this.physics.isGrounded &&
-        (this.physics.isDrifting || Math.random() < dustRate)
-      ) {
-        this.spawnDust(simOut.position.x, simOut.position.y, simOut.position.z);
+      if (!this.settings.reducedMotion && this.settings.quality !== 'low') {
+        const dustRate = this.physics.isBoosting ? 0.65 : 0.25;
+        if (
+          !locked &&
+          speedKmh > 6 &&
+          this.physics.isGrounded &&
+          (this.physics.isDrifting || Math.random() < dustRate)
+        ) {
+          this.spawnDust(simOut.position.x, simOut.position.y, simOut.position.z);
+        }
       }
 
       if (!locked && this.physics.isDrifting && this.physics.isGrounded && speedKmh > 12) {
@@ -793,13 +845,12 @@ export class SceneManager {
       );
 
       // Collectibles detection (Orbs, Tokens, Fragments, Secret Relics)
-      if (this.worldEnv) {
+      if (this.worldEnv && this.collectedSet.size < this.worldEnv.collectibles.length) {
         for (const col of this.worldEnv.collectibles) {
-          if (
-            !col.collected &&
-            Math.hypot(simOut.position.x - col.x, simOut.position.z - col.z) < 2.8 &&
-            Math.abs(simOut.position.y - col.y) < 3.4
-          ) {
+          if (col.collected) continue;
+          const dx = simOut.position.x - col.x;
+          const dz = simOut.position.z - col.z;
+          if (dx * dx + dz * dz < 7.84 && Math.abs(simOut.position.y - col.y) < 3.4) {
             col.collected = true;
             col.mesh.visible = false;
             this.collectedSet.add(col.id);
@@ -815,15 +866,17 @@ export class SceneManager {
       }
 
       // Secret Locations discovery
-      for (const sec of SECRET_LOCATIONS) {
-        if (
-          !this.discoveredSecretSet.has(sec.id) &&
-          Math.hypot(simOut.position.x - sec.x, simOut.position.z - sec.z) <= sec.radius
-        ) {
-          this.discoveredSecretSet.add(sec.id);
-          soundEngine.playChime();
-          this.worldEnv?.triggerDiscoveryPulse(sec.x, sec.z, '#5E915E');
-          this.callbacks.onSecretDiscovered(sec.id, sec.title);
+      if (this.discoveredSecretSet.size < SECRET_LOCATIONS.length) {
+        for (const sec of SECRET_LOCATIONS) {
+          if (this.discoveredSecretSet.has(sec.id)) continue;
+          const dx = simOut.position.x - sec.x;
+          const dz = simOut.position.z - sec.z;
+          if (dx * dx + dz * dz <= sec.radius * sec.radius) {
+            this.discoveredSecretSet.add(sec.id);
+            soundEngine.playChime();
+            this.worldEnv?.triggerDiscoveryPulse(sec.x, sec.z, '#5E915E');
+            this.callbacks.onSecretDiscovered(sec.id, sec.title);
+          }
         }
       }
 
@@ -843,10 +896,7 @@ export class SceneManager {
         if (this.settings.ghostEnabled && ghostPose) {
           this.ghostRig.root.visible = true;
           this.ghostRig.root.position.set(ghostPose.x, ghostPose.y, ghostPose.z);
-          this.ghostRig.root.quaternion.setFromAxisAngle(
-            new THREE.Vector3(0, 1, 0),
-            ghostPose.yaw,
-          );
+          this.ghostRig.root.quaternion.setFromAxisAngle(_yAxis, ghostPose.yaw);
           this.ghostRig.updateVisuals(18, 0, false, dt);
         } else {
           this.ghostRig.root.visible = false;
@@ -878,6 +928,27 @@ export class SceneManager {
 
     this.updateDust(dt);
     this.renderer.render(this.scene, this.cameraRig.camera);
+
+    if (import.meta.env.DEV && this.callbacks.onDevTelemetry) {
+      this.devAccumMs += rawFrameDt * 1000;
+      this.devFrames++;
+      if (this.devAccumMs >= 350) {
+        const avgMs = this.devAccumMs / this.devFrames;
+        const info = this.renderer.info;
+        this.callbacks.onDevTelemetry({
+          fps: Math.round(1000 / Math.max(1, avgMs)),
+          frameMs: Number(avgMs.toFixed(1)),
+          drawCalls: info.render.calls,
+          triangles: info.render.triangles,
+          geometries: info.memory.geometries,
+          textures: info.memory.textures,
+          quality: this.settings.quality,
+          isSoftwareGl: this.isSoftwareGl,
+        });
+        this.devAccumMs = 0;
+        this.devFrames = 0;
+      }
+    }
 
     if (this.isSoftwareGl) {
       this.afterDraw(this.tick);

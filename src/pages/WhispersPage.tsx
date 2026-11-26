@@ -29,6 +29,7 @@ export const WhispersPage: React.FC = () => {
     removeWhisper,
     authUser,
     authBusy,
+    authError,
     playerDisplayName,
     signInGoogle,
   } = useAppState();
@@ -347,6 +348,11 @@ export const WhispersPage: React.FC = () => {
                 <LogIn className="w-4 h-4" />
                 <span>{authBusy ? 'Signing in...' : 'Sign in with Google to Post'}</span>
               </button>
+              {authError && (
+                <p role="alert" className="text-xs font-bold text-[#E65448]">
+                  {authError}
+                </p>
+              )}
             </div>
           ) : (
             <form onSubmit={handlePost} className="mt-4 space-y-3.5">

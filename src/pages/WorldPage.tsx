@@ -27,7 +27,7 @@ import {
   type HudNotificationItem,
   type HudNotificationKind,
 } from '../game/hudNotifications';
-import type { SceneManager } from '../game/sceneManager';
+import type { DevPerfStats, SceneManager } from '../game/sceneManager';
 import { useAppState } from '../state/AppStateContext';
 import type {
   ActiveChallengeId,
@@ -150,6 +150,8 @@ export const WorldPage: React.FC = () => {
   });
   const [notifications, setNotifications] = useState<HudNotificationItem[]>([]);
   const [isTouchDevice, setIsTouchDevice] = useState(false);
+  const [devPerfOpen, setDevPerfOpen] = useState(false);
+  const [devPerfStats, setDevPerfStats] = useState<DevPerfStats | null>(null);
 
   const managerRef = useRef<SceneManager | null>(null);
   const lastSyncedDistanceRef = useRef(0);
@@ -179,6 +181,18 @@ export const WorldPage: React.FC = () => {
     checkTouch();
     window.addEventListener('resize', checkTouch);
     return () => window.removeEventListener('resize', checkTouch);
+  }, []);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F9') {
+        e.preventDefault();
+        setDevPerfOpen((o) => !o);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
   useEffect(() => {
@@ -509,6 +523,7 @@ export const WorldPage: React.FC = () => {
         onCollectiblePicked={handleCollectiblePicked}
         onToast={handleGenericToast}
         onRaceLapCompleted={handleRaceLapCompleted}
+        onDevTelemetry={import.meta.env.DEV ? setDevPerfStats : undefined}
         managerRef={managerRef}
       />
 
@@ -772,6 +787,68 @@ export const WorldPage: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* DEV-Only Collapsible Performance Monitor (excluded in production builds) */}
+      {import.meta.env.DEV && phase === 'playing' && !panelOpen && (
+        <div className="fixed top-[4.5rem] left-3 sm:left-5 z-30 pointer-events-auto">
+          {!devPerfOpen ? (
+            <button
+              type="button"
+              tabIndex={-1}
+              data-testid="dev-perf-toggle"
+              onClick={(e) => {
+                e.currentTarget.blur();
+                setDevPerfOpen(true);
+              }}
+              title="Toggle Dev Performance Monitor (F9)"
+              className="px-2 py-1 rounded-lg bg-[#26211E]/85 text-[#F5E9D4] border border-[#61564E] text-[10px] font-extrabold tracking-wider tabular-nums hover:bg-[#26211E] cursor-pointer"
+            >
+              PERF {devPerfStats ? `${devPerfStats.fps} FPS` : 'DEV'}
+            </button>
+          ) : (
+            <div
+              data-testid="dev-perf-monitor"
+              className="ui-hud-panel-dark px-3 py-2 rounded-xl text-[11px] font-bold tabular-nums min-w-[205px] space-y-1 border-[#21968B]"
+            >
+              <div className="flex items-center justify-between gap-2 text-[10px] font-extrabold text-[#7FD4DE]">
+                <span>DEV PERF MONITOR (F9)</span>
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setDevPerfOpen(false)}
+                  className="text-[#F5E9D4] hover:text-[#FFF9F0] cursor-pointer"
+                  aria-label="Collapse Dev Perf Monitor"
+                >
+                  ×
+                </button>
+              </div>
+              {devPerfStats ? (
+                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[#FFF9F0]">
+                  <span className="text-[#E6D3B5]">FPS / Frame</span>
+                  <span className="text-right">
+                    {devPerfStats.fps} ({devPerfStats.frameMs}ms)
+                  </span>
+                  <span className="text-[#E6D3B5]">Draw Calls</span>
+                  <span className="text-right">{devPerfStats.drawCalls}</span>
+                  <span className="text-[#E6D3B5]">Triangles</span>
+                  <span className="text-right">{devPerfStats.triangles.toLocaleString()}</span>
+                  <span className="text-[#E6D3B5]">Geo / Tex</span>
+                  <span className="text-right">
+                    {devPerfStats.geometries} / {devPerfStats.textures}
+                  </span>
+                  <span className="text-[#E6D3B5]">Quality</span>
+                  <span className="text-right uppercase">
+                    {devPerfStats.quality}
+                    {devPerfStats.isSoftwareGl ? ' (SW)' : ''}
+                  </span>
+                </div>
+              ) : (
+                <div className="text-[#E6D3B5]">Sampling frames...</div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

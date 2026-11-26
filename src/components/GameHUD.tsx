@@ -153,7 +153,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       : 0;
 
   return (
-    <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between p-3 sm:p-5">
+    <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between p-[max(0.75rem,env(safe-area-inset-top))] sm:p-5">
       {/* Top Row: Zone Cluster + Mission / Tour / Race + Quick Utilities */}
       <div className="flex items-start justify-between gap-2 sm:gap-4">
         {/* Top-Left Location & World Telemetry */}
@@ -198,7 +198,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
         </div>
 
         {/* Top-Center Active Challenge / Race / Guided Tour / Objective Tracker */}
-        <div className="hidden md:flex flex-col items-center gap-1.5 pointer-events-auto max-w-lg">
+        <div className="hidden lg:flex flex-col items-center gap-1.5 pointer-events-auto max-w-lg min-w-0">
           {hud.race.phase === 'racing' && (
             <div className="ui-hud-panel-dark border-[#EC6D2C] px-4 py-2 flex items-center gap-3 text-xs font-extrabold tabular-nums">
               <Flag className="w-4 h-4 text-[#EC6D2C] shrink-0" />
@@ -361,7 +361,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                     className="flex items-center gap-1.5 hover:text-[#EC6D2C] transition-colors cursor-pointer"
                   >
                     <Crosshair className="w-3.5 h-3.5 text-[#E65448] shrink-0" />
-                    <span>
+                    <span className="whitespace-nowrap">
                       {objectiveLandmark.title}
                       {objectiveNav ? ` · ${objectiveNav.distanceMeters}m ${objectiveNav.bearingLabel}` : ''}
                     </span>
@@ -513,9 +513,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
         </div>
       </div>
 
-      {/* Compact Mobile/Tablet Challenge or Guided Tour Strip on narrow viewports */}
+      {/* Compact Mobile/Tablet Challenge or Guided Tour Strip on <1024px viewports */}
       {(raceActive || ch.id) && (
-        <div className="md:hidden self-center pointer-events-auto ui-hud-panel-dark border-[#EC6D2C] px-3 py-1.5 text-[11px] font-extrabold max-w-[92vw] truncate">
+        <div className="lg:hidden self-center pointer-events-auto ui-hud-panel-dark border-[#EC6D2C] px-3 py-1.5 text-[11px] font-extrabold max-w-[92vw] truncate">
           {hud.race.phase === 'racing'
             ? `Paddock Race · ${hud.race.elapsedSec.toFixed(1)}s · CP ${hud.race.checkpointIndex}/${hud.race.totalCheckpoints}`
             : `${ch.title}: ${ch.progressText}${ch.timerSec !== null ? ` · ${ch.timerSec.toFixed(1)}s` : ''}`}
@@ -523,7 +523,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       )}
 
       {!raceActive && !ch.id && activeTour && (
-        <div className="md:hidden self-center pointer-events-auto ui-hud-panel-dark border-[#21968B] px-3 py-1.5 flex items-center gap-2 text-[11px] font-extrabold max-w-[92vw]">
+        <div className="lg:hidden self-center pointer-events-auto ui-hud-panel-dark border-[#21968B] px-3 py-1.5 flex items-center gap-2 text-[11px] font-extrabold max-w-[92vw]">
           <Route className="w-3.5 h-3.5 text-[#21968B] shrink-0" />
           <span className="truncate">
             Tour {activeTour.stop.stepNumber}/{TOUR_STOPS.length}: {activeTour.stop.title}
@@ -545,11 +545,13 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       {/* Bottom Row: Instrument Speedometer Cluster + Interaction CTA + Minimap */}
       <div
         className={`flex items-end justify-between gap-4 ${
-          touchControlsVisible ? 'pb-[118px] sm:pb-28' : 'pb-0'
+          touchControlsVisible
+            ? 'pb-[122px] sm:pb-28 [@media(max-height:480px)]:pb-[108px]'
+            : 'pb-0'
         }`}
       >
         {/* Bottom-Left: Tactile Speedometer & Radial Gauge */}
-        <div className="ui-hud-panel rounded-2xl px-3.5 py-2.5 sm:px-4 sm:py-3 min-w-[144px] sm:min-w-[202px]">
+        <div className="ui-hud-panel rounded-2xl px-3.5 py-2.5 sm:px-4 sm:py-3 [@media(max-height:480px)]:py-2 min-w-[144px] sm:min-w-[202px]">
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="flex items-center gap-1.5 mb-0.5">

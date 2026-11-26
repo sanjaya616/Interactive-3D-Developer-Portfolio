@@ -63,4 +63,4 @@ npm run lint
 npm run build
 ```
 
-> **Production Note**: Configure `VERIFICATION_HMAC_SECRET` in your hosting environment secrets so HMAC signatures remain persistent across server restarts, and always review/verify `firestore.rules` in the Firebase Console before broad public launch.
+> **Production Note**: In `NODE_ENV=production`, `VERIFICATION_HMAC_SECRET` (minimum 16 characters, non-placeholder) is **required**—signed race/whisper verification routes fail closed with `503 HMAC_SECRET_MISSING` rather than falling back to ephemeral secrets, and `GET /api/health` reports `hmacConfigured`. Always review `firestore.rules` in the Firebase Console before broad public launch.

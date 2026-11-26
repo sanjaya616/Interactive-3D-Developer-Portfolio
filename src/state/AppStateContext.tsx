@@ -214,8 +214,8 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
       const items = await fetchModerationWhispers();
       setModerationWhispers(items);
-    } catch {
-      // Surface only non-admin issues safely
+    } catch (err) {
+      console.warn('Unable to load moderation queue:', err instanceof Error ? err.message : String(err));
     }
   }, [authUser?.isAdmin]);
 

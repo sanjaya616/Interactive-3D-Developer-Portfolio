@@ -26,6 +26,10 @@ const _forward = new THREE.Vector3();
 const _right = new THREE.Vector3();
 const _vel = new THREE.Vector3();
 const _euler = new THREE.Euler(0, 0, 0, 'YXZ');
+const _upAxis = new THREE.Vector3(0, 1, 0);
+const _outPos = new THREE.Vector3();
+const _outQuat = new THREE.Quaternion();
+const _downDir = { x: 0, y: -1, z: 0 };
 
 const WHEEL_OFFSETS: [number, number][] = [
   [-0.95, -1.05], // FL
@@ -103,11 +107,10 @@ export class RapierVehiclePhysics {
     }
 
     // 2. Static landmark building, bridge rail, tunnel & tree trunk colliders
-    const staticAxisY = new THREE.Vector3(0, 1, 0);
     for (const sc of staticColliders) {
       const rbDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(sc.x, sc.y, sc.z);
       if (sc.ry) {
-        rbDesc.setRotation(new THREE.Quaternion().setFromAxisAngle(staticAxisY, sc.ry));
+        rbDesc.setRotation(_quat.setFromAxisAngle(_upAxis, sc.ry));
       }
       const b = this.world.createRigidBody(rbDesc);
       const colDesc = RAPIER.ColliderDesc.cuboid(sc.hx, sc.hy, sc.hz);
@@ -202,7 +205,7 @@ export class RapierVehiclePhysics {
     const pos = this.chassisBody.translation();
     const linVel = this.chassisBody.linvel();
 
-    const ray = new RAPIER.Ray({ x: pos.x, y: pos.y, z: pos.z }, { x: 0, y: -1, z: 0 });
+    const ray = new RAPIER.Ray({ x: pos.x, y: pos.y, z: pos.z }, _downDir);
     const hit = this.world.castRay(ray, 1.1, true, undefined, undefined, undefined, this.chassisBody);
     const surfY = this.sampleSurfaceY(pos.x, pos.z);
     this.isGrounded = hit !== null || pos.y <= surfY + 0.96;
@@ -210,7 +213,7 @@ export class RapierVehiclePhysics {
     const justLanded = !this.wasGrounded && this.isGrounded;
     this.wasGrounded = this.isGrounded;
 
-    _quat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
+    _quat.setFromAxisAngle(_upAxis, this.yaw);
     _forward.set(0, 0, -1).applyQuaternion(_quat);
     _right.set(1, 0, 0).applyQuaternion(_quat);
     _vel.set(linVel.x, 0, linVel.z);
@@ -295,7 +298,7 @@ export class RapierVehiclePhysics {
       const [ox, oz] = WHEEL_OFFSETS[i];
       const wx = finalPos.x + ox * cosY + oz * sinY;
       const wz = finalPos.z - ox * sinY + oz * cosY;
-      const wRay = new RAPIER.Ray({ x: wx, y: finalPos.y + 0.15, z: wz }, { x: 0, y: -1, z: 0 });
+      const wRay = new RAPIER.Ray({ x: wx, y: finalPos.y + 0.15, z: wz }, _downDir);
       const wHit = this.world.castRay(wRay, 1.35, true, undefined, undefined, undefined, this.chassisBody);
       const groundAtWheel = wHit ? finalPos.y + 0.15 - wHit.timeOfImpact : this.sampleSurfaceY(wx, wz);
       const clearance = THREE.MathUtils.clamp(carBottomY - groundAtWheel, -0.18, 0.45);
@@ -336,18 +339,16 @@ export class RapierVehiclePhysics {
       db.mesh.quaternion.set(r.x, r.y, r.z, r.w);
     }
 
+    _outPos.set(finalPos.x, finalPos.y - 0.56, finalPos.z);
+    _outQuat.copy(_quat);
+
     return {
       justLanded,
       justJumped,
       collisionImpact,
-      wheelCompressions: [
-        this.wheelCompressions[0],
-        this.wheelCompressions[1],
-        this.wheelCompressions[2],
-        this.wheelCompressions[3],
-      ],
-      position: new THREE.Vector3(finalPos.x, finalPos.y - 0.56, finalPos.z),
-      quaternion: _quat.clone(),
+      wheelCompressions: this.wheelCompressions,
+      position: _outPos,
+      quaternion: _outQuat,
     };
   }
 

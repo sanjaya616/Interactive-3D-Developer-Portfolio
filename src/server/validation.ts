@@ -21,6 +21,32 @@ export interface RunTokenPayload {
   maxSpeedMs: number;
 }
 
+const PLACEHOLDER_SECRETS = new Set([
+  'CHANGE_ME_SERVER_SECRET',
+  'MY_VERIFICATION_HMAC_SECRET',
+  'YOUR_VERIFICATION_HMAC_SECRET',
+]);
+
+export interface SigningSecretResolution {
+  configured: boolean;
+  secret: string | null;
+}
+
+export function resolveServerSigningSecret(
+  envSecret: string | undefined,
+  nodeEnv: string | undefined,
+): SigningSecretResolution {
+  const trimmed = (envSecret || '').trim();
+  const isValid = trimmed.length >= 16 && !PLACEHOLDER_SECRETS.has(trimmed);
+  if (isValid) {
+    return { configured: true, secret: trimmed };
+  }
+  if (nodeEnv === 'production') {
+    return { configured: false, secret: null };
+  }
+  return { configured: false, secret: crypto.randomBytes(32).toString('hex') };
+}
+
 export function hmacSha256Hex(secret: string, input: string): string {
   return crypto.createHmac('sha256', secret).update(input, 'utf8').digest('hex');
 }
@@ -372,6 +398,19 @@ export class SlidingWindowLimiter {
     allowed: boolean;
     retryAfterSec: number;
   } {
+    if (this.hits.size > 1000) {
+      for (const [k, timestamps] of this.hits.entries()) {
+        if (timestamps.length === 0 || nowMs - timestamps[timestamps.length - 1] >= windowMs) {
+          this.hits.delete(k);
+        }
+        if (this.hits.size <= 750) break;
+      }
+      if (this.hits.size > 1000) {
+        const oldestKey = this.hits.keys().next().value;
+        if (oldestKey !== undefined) this.hits.delete(oldestKey);
+      }
+    }
+
     const arr = (this.hits.get(key) || []).filter((t) => nowMs - t < windowMs);
     if (arr.length > 0 && minGapMs > 0) {
       const sinceLast = nowMs - arr[arr.length - 1];

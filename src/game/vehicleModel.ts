@@ -14,6 +14,7 @@ export interface VehicleRig {
   applyConfig: (config: VehicleConfig) => void;
   setHeadlightsOn: (on: boolean, ambientDark?: boolean) => void;
   setGhostMode: (ghost: boolean) => void;
+  setReducedMotion: (enabled: boolean) => void;
   updateVisuals: (
     speedMs: number,
     steerInput: number,
@@ -236,7 +237,6 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
     flameMat,
     plateMat,
   );
-  textures.push(plateTex);
 
   // 1. Three selectable sculpted chassis bodies with crisp beltlines
   const buggyGeo = buildExtrudedBody([
@@ -676,6 +676,11 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
   let headlightsActive = true;
   let headlightIntensityBase = 0.95;
   let headlightBeamBaseOpacity = 0.2;
+  let reducedMotionEnabled = false;
+
+  const setReducedMotion = (enabled: boolean) => {
+    reducedMotionEnabled = enabled;
+  };
 
   const setHeadlightsOn = (on: boolean, ambientDark = false) => {
     headlightsActive = on;
@@ -807,7 +812,7 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
     boostFlameLeft.visible = isBoosting;
     boostFlameRight.visible = isBoosting;
     if (isBoosting) {
-      const flicker = 0.85 + Math.random() * 0.45;
+      const flicker = reducedMotionEnabled ? 1.05 : 0.85 + Math.random() * 0.45;
       boostFlameLeft.scale.set(1, 1, flicker);
       boostFlameRight.scale.set(1, 1, flicker);
     }
@@ -832,6 +837,7 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
     applyConfig,
     setHeadlightsOn,
     setGhostMode,
+    setReducedMotion,
     updateVisuals,
     dispose,
   };

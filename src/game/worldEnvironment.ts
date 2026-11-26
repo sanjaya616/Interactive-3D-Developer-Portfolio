@@ -1950,6 +1950,10 @@ export function buildWorldEnvironment(
     geometries.forEach((g) => g.dispose());
     materials.forEach((m) => m.dispose());
     textures.forEach((t) => t.dispose());
+    if (sun.shadow.map) {
+      sun.shadow.map.dispose();
+      sun.shadow.map = null;
+    }
   };
 
   return {

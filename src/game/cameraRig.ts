@@ -75,7 +75,8 @@ export class CameraRig {
   }
 
   enterPhotoMode(vehiclePos: THREE.Vector3): void {
-    this.photoFocus.copy(vehiclePos).add(new THREE.Vector3(0, 1.3, 0));
+    this.photoFocus.copy(vehiclePos);
+    this.photoFocus.y += 1.3;
     this.photoYaw = 0.72;
     this.photoPitch = 0.24;
     this.photoDist = 8.2;

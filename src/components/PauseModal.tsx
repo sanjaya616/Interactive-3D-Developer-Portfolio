@@ -85,6 +85,7 @@ export const PauseModal: React.FC<PauseModalProps> = ({
   const {
     authUser,
     authBusy,
+    authError,
     cloudSyncStatus,
     playerDisplayName,
     updatePlayerDisplayName,
@@ -605,6 +606,15 @@ export const PauseModal: React.FC<PauseModalProps> = ({
                   </button>
                 )}
               </div>
+
+              {authError && !authUser && (
+                <div
+                  role="alert"
+                  className="px-2.5 py-2 rounded-lg bg-[#E65448]/10 border border-[#E65448]/40 text-[11px] font-bold text-[#E65448]"
+                >
+                  {authError} Guest local save remains active.
+                </div>
+              )}
 
               {authUser && (
                 <form onSubmit={handleSaveName} className="flex items-center gap-1.5 pt-1">

@@ -35,6 +35,7 @@ import {
   auth,
   db,
   FIREBASE_ADMIN_EMAIL,
+  FIREBASE_CONFIGURED,
   googleProvider,
   handleFirestoreError,
   OperationType,
@@ -63,7 +64,9 @@ export function subscribeToAuth(cb: (user: User | null) => void): () => void {
 }
 
 export async function signInWithGoogle(): Promise<User | null> {
-  if (!auth) throw new Error('Firebase Auth is not configured.');
+  if (!FIREBASE_CONFIGURED || !auth) {
+    throw new Error('Google sign-in requires valid Firebase configuration. Guest local play remains available.');
+  }
   const cred = await signInWithPopup(auth, googleProvider);
   return cred.user;
 }
@@ -434,6 +437,7 @@ export async function fetchGlobalLeaderboard(): Promise<LeaderboardEntry[]> {
 
     // Check active server HMAC signatures when server is in same session
     let sigMatches = new Set<string>();
+    let sigCheckCompleted = false;
     try {
       const checkRes = await fetch('/api/leaderboard/check-signatures', {
         method: 'POST',
@@ -451,9 +455,10 @@ export async function fetchGlobalLeaderboard(): Promise<LeaderboardEntry[]> {
       if (checkRes.ok) {
         const json = (await checkRes.json()) as { verifiedRunIds?: string[] };
         sigMatches = new Set(json.verifiedRunIds || []);
+        sigCheckCompleted = true;
       }
     } catch {
-      // Non-fatal; Firestore rules already required 64-hex serverSig
+      // Leave sigCheckCompleted=false when server verification endpoint is unreachable
     }
 
     const currentUid = auth?.currentUser?.uid;
@@ -466,7 +471,7 @@ export async function fetchGlobalLeaderboard(): Promise<LeaderboardEntry[]> {
         lapSeconds: r.lapSeconds,
         recordedAt: formatFsDate(r.achievedAt),
         runId: r.runId,
-        serverVerified: sigMatches.has(r.runId) || /^[a-f0-9]{64}$/.test(r.serverSig),
+        serverVerified: sigCheckCompleted ? sigMatches.has(r.runId) : false,
         isPlayer: Boolean(currentUid && r.uid === currentUid),
       }))
       .sort((a, b) => a.lapSeconds - b.lapSeconds);
