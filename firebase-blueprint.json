@@ -20,7 +20,7 @@
         },
         "vehicle": {
           "type": "object",
-          "description": "Customized vehicle configuration (chassis, paint, skin, wheels, accessory, plate, upgrade tiers)."
+          "description": "Customized vehicle configuration (chassis, paint, skin, wheels, rimStyle, accessory, plate, upgrade tiers)."
         },
         "settings": {
           "type": "object",
@@ -57,6 +57,10 @@
         "lastLapSeconds": {
           "type": "number",
           "description": "Player most recent Paddock lap time in seconds, or null."
+        },
+        "challengeBests": {
+          "type": "object",
+          "description": "Personal best scores and fastest completion times for drift, stunt, lagoon run, double-jump trial, forest trail, and precision parking."
         },
         "distanceDrivenMeters": {
           "type": "number",

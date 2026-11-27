@@ -15,6 +15,7 @@ export interface VehicleRig {
   setHeadlightsOn: (on: boolean, ambientDark?: boolean) => void;
   setGhostMode: (ghost: boolean) => void;
   setReducedMotion: (enabled: boolean) => void;
+  triggerDoubleJumpEffect: () => void;
   updateVisuals: (
     speedMs: number,
     steerInput: number,
@@ -393,6 +394,80 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
     chassisGroup.add(strut);
   }
 
+  // 2B. Sculpted Front Splitter, Tow Hook, Rear Diffuser Fins & Suspension Wishbones
+  const splitterGeo = new THREE.BoxGeometry(1.56, 0.06, 0.24);
+  const finGeo = new THREE.BoxGeometry(0.05, 0.16, 0.28);
+  const towHookGeo = new THREE.TorusGeometry(0.065, 0.018, 6, 12);
+  const wishboneArmGeo = new THREE.BoxGeometry(0.46, 0.045, 0.09);
+  const hoodScoopGeo = new THREE.BoxGeometry(0.62, 0.08, 0.42);
+  const doorHandleGeo = new THREE.BoxGeometry(0.06, 0.045, 0.22);
+  const doorSeamGeo = new THREE.BoxGeometry(0.02, 0.44, 0.025);
+  const aPillarGeo = new THREE.BoxGeometry(0.06, 0.54, 0.06);
+  const wiperGeo = new THREE.BoxGeometry(0.42, 0.024, 0.024);
+  geometries.push(
+    splitterGeo,
+    finGeo,
+    towHookGeo,
+    wishboneArmGeo,
+    hoodScoopGeo,
+    doorHandleGeo,
+    doorSeamGeo,
+    aPillarGeo,
+    wiperGeo,
+  );
+
+  const frontSplitter = new THREE.Mesh(splitterGeo, accentMat);
+  frontSplitter.position.set(0, 0.36, -1.86);
+  const towHook = new THREE.Mesh(towHookGeo, accentMat);
+  towHook.position.set(0.36, 0.42, -1.89);
+  towHook.rotation.x = Math.PI / 2;
+  chassisGroup.add(frontSplitter, towHook);
+
+  for (const fx of [-0.52, -0.18, 0.18, 0.52]) {
+    const fin = new THREE.Mesh(finGeo, accentMat);
+    fin.position.set(fx, 0.38, 1.79);
+    chassisGroup.add(fin);
+  }
+
+  // Lower & Upper Suspension Wishbone A-Arms
+  for (const [ax, az] of [
+    [-0.64, -1.05],
+    [0.64, -1.05],
+    [-0.64, 1.05],
+    [0.64, 1.05],
+  ]) {
+    const sign = Math.sign(ax);
+    const armFront = new THREE.Mesh(wishboneArmGeo, trimMat);
+    armFront.position.set(ax, 0.44, az - 0.07);
+    armFront.rotation.y = sign * 0.24;
+    armFront.rotation.z = -sign * 0.08;
+    const armRear = new THREE.Mesh(wishboneArmGeo, trimMat);
+    armRear.position.set(ax, 0.44, az + 0.07);
+    armRear.rotation.y = -sign * 0.24;
+    armRear.rotation.z = -sign * 0.08;
+    chassisGroup.add(armFront, armRear);
+  }
+
+  const hoodScoop = new THREE.Mesh(hoodScoopGeo, trimMat);
+  hoodScoop.position.set(0, 1.02, -0.94);
+  hoodScoop.rotation.x = 0.14;
+  chassisGroup.add(hoodScoop);
+
+  // Door handles, vertical door panel seams & A-pillars
+  const doorHandles: THREE.Mesh[] = [];
+  const doorSeams: THREE.Mesh[] = [];
+  for (const side of [-1, 1]) {
+    const handle = new THREE.Mesh(doorHandleGeo, metalMat);
+    handle.position.set(side * 0.84, 0.86, 0.35);
+    const seamFront = new THREE.Mesh(doorSeamGeo, trimMat);
+    seamFront.position.set(side * 0.83, 0.72, -0.45);
+    const seamRear = new THREE.Mesh(doorSeamGeo, trimMat);
+    seamRear.position.set(side * 0.83, 0.72, 0.58);
+    doorHandles.push(handle);
+    doorSeams.push(seamFront, seamRear);
+    chassisGroup.add(handle, seamFront, seamRear);
+  }
+
   // 3. Dual Racing Hood Stripes + Side Mirrors
   const stripeGeo = new THREE.BoxGeometry(0.22, 0.05, 1.16);
   const mirrorArmGeo = new THREE.BoxGeometry(0.18, 0.06, 0.08);
@@ -416,7 +491,7 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
     chassisGroup.add(mArm, mCap);
   }
 
-  // 4. Multi-pane Angled Windshield, Side Cabin Glass & Rear Glass
+  // 4. Multi-pane Angled Windshield, A-Pillars, Twin Wipers, Side Cabin Glass & Rear Glass
   const windshieldGeo = new THREE.BoxGeometry(1.32, 0.5, 0.08);
   const sideWinGeo = new THREE.BoxGeometry(0.06, 0.36, 0.88);
   const rearWinGeo = new THREE.BoxGeometry(1.24, 0.38, 0.08);
@@ -425,6 +500,20 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
   const windshield = new THREE.Mesh(windshieldGeo, glassMat);
   windshield.position.set(0, 1.24, -0.44);
   windshield.rotation.x = -0.6;
+
+  const aPillarL = new THREE.Mesh(aPillarGeo, trimMat);
+  aPillarL.position.set(-0.68, 1.24, -0.44);
+  aPillarL.rotation.x = -0.6;
+  const aPillarR = new THREE.Mesh(aPillarGeo, trimMat);
+  aPillarR.position.set(0.68, 1.24, -0.44);
+  aPillarR.rotation.x = -0.6;
+
+  const wiperL = new THREE.Mesh(wiperGeo, trimMat);
+  wiperL.position.set(-0.28, 1.04, -0.58);
+  wiperL.rotation.z = 0.18;
+  const wiperR = new THREE.Mesh(wiperGeo, trimMat);
+  wiperR.position.set(0.24, 1.04, -0.58);
+  wiperR.rotation.z = 0.18;
 
   const sideWinL = new THREE.Mesh(sideWinGeo, glassMat);
   sideWinL.position.set(-0.78, 1.26, 0.28);
@@ -435,7 +524,7 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
   rearWin.position.set(0, 1.22, 1.04);
   rearWin.rotation.x = 0.55;
 
-  chassisGroup.add(windshield, sideWinL, sideWinR, rearWin);
+  chassisGroup.add(windshield, aPillarL, aPillarR, wiperL, wiperR, sideWinL, sideWinR, rearWin);
 
   // 5. Tubular Roof Rack Rails
   const rackRailGeo = new THREE.CylinderGeometry(0.04, 0.04, 1.02, 8);
@@ -527,6 +616,59 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
   spoilerGroup.position.set(0, 1.16, 1.5);
   chassisGroup.add(spoilerGroup);
 
+  const trailRackGroup = new THREE.Group();
+  const basketSideGeo = new THREE.BoxGeometry(0.06, 0.14, 1.16);
+  const basketEndGeo = new THREE.BoxGeometry(1.18, 0.14, 0.06);
+  const basketSlatGeo = new THREE.BoxGeometry(1.06, 0.03, 0.09);
+  const recBoardGeo = new THREE.BoxGeometry(0.24, 0.05, 0.88);
+  const jerryGeo = new THREE.BoxGeometry(0.28, 0.24, 0.38);
+  const trailLampPodGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.12, 10);
+  trailLampPodGeo.rotateX(Math.PI / 2);
+  geometries.push(basketSideGeo, basketEndGeo, basketSlatGeo, recBoardGeo, jerryGeo, trailLampPodGeo);
+
+  const recoveryMat = new THREE.MeshStandardMaterial({ color: 0xe65448, roughness: 0.48 });
+  const jerryMat = new THREE.MeshStandardMaterial({ color: 0x4f8456, roughness: 0.56 });
+  materials.push(recoveryMat, jerryMat);
+
+  for (const bx of [-0.56, 0.56]) {
+    const bSide = new THREE.Mesh(basketSideGeo, trimMat);
+    bSide.position.set(bx, 0.06, 0);
+    trailRackGroup.add(bSide);
+  }
+  for (const bz of [-0.55, 0.55]) {
+    const bEnd = new THREE.Mesh(basketEndGeo, trimMat);
+    bEnd.position.set(0, 0.06, bz);
+    trailRackGroup.add(bEnd);
+  }
+  for (const sz of [-0.36, -0.12, 0.12, 0.36]) {
+    const slat = new THREE.Mesh(basketSlatGeo, trimMat);
+    slat.position.set(0, 0, sz);
+    trailRackGroup.add(slat);
+  }
+  // Dual high-traction recovery boards on left & right rails
+  for (const rx of [-0.36, 0.36]) {
+    const recBoard = new THREE.Mesh(recBoardGeo, recoveryMat);
+    recBoard.position.set(rx, 0.08, 0.04);
+    recBoard.castShadow = true;
+    trailRackGroup.add(recBoard);
+  }
+  // Trail expedition canister in center basket
+  const trailCan = new THREE.Mesh(jerryGeo, jerryMat);
+  trailCan.position.set(0, 0.13, 0.24);
+  trailCan.castShadow = true;
+  trailRackGroup.add(trailCan);
+  // Twin front amber trail spot lamps on basket brow
+  for (const lx of [-0.3, 0.3]) {
+    const pod = new THREE.Mesh(trailLampPodGeo, trimMat);
+    pod.position.set(lx, 0.16, -0.54);
+    const lLens = new THREE.Mesh(trailLampPodGeo, headlightMat);
+    lLens.scale.set(0.76, 0.76, 0.35);
+    lLens.position.set(lx, 0.16, -0.59);
+    trailRackGroup.add(pod, lLens);
+  }
+  trailRackGroup.position.set(0, 1.7, 0.22);
+  chassisGroup.add(trailRackGroup);
+
   // 7. Twin Recessed Headlights + Bezel Housings + Projected Light Cones
   const bezelGeo = new THREE.CylinderGeometry(0.17, 0.17, 0.09, 14);
   bezelGeo.rotateX(Math.PI / 2);
@@ -600,7 +742,7 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
   boostFlameRight.visible = false;
   chassisGroup.add(boostFlameLeft, boostFlameRight);
 
-  // 10. Four Articulated Multi-Spoke Wheels with Lathe Tire Profile & Brake Rotor Discs
+  // 10. Four Articulated Multi-Style Wheels + Vented Brake Rotors & Calipers
   const tireLathePoints = [
     new THREE.Vector2(0.24, -0.17),
     new THREE.Vector2(0.39, -0.17),
@@ -614,29 +756,92 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
   wheelGeo.rotateZ(Math.PI / 2);
   const rimBarrelGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.3, 16);
   rimBarrelGeo.rotateZ(Math.PI / 2);
-  const spokeGeo = new THREE.BoxGeometry(0.33, 0.44, 0.06);
+  const spokeClassicGeo = new THREE.BoxGeometry(0.33, 0.22, 0.048);
+  const meshSpokeGeo = new THREE.BoxGeometry(0.32, 0.44, 0.028);
+  const beadlockRingGeo = new THREE.TorusGeometry(0.245, 0.028, 6, 16);
+  beadlockRingGeo.rotateY(Math.PI / 2);
+  const turboDishGeo = new THREE.CylinderGeometry(0.23, 0.23, 0.31, 14);
+  turboDishGeo.rotateZ(Math.PI / 2);
   const hubCapGeo = new THREE.CylinderGeometry(0.095, 0.095, 0.36, 12);
   hubCapGeo.rotateZ(Math.PI / 2);
-  const rotorGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.04, 14);
+  const rotorGeo = new THREE.CylinderGeometry(0.19, 0.19, 0.04, 14);
   rotorGeo.rotateZ(Math.PI / 2);
-  geometries.push(wheelGeo, rimBarrelGeo, spokeGeo, hubCapGeo, rotorGeo);
+  const caliperGeo = new THREE.BoxGeometry(0.09, 0.14, 0.1);
+  geometries.push(
+    wheelGeo,
+    rimBarrelGeo,
+    spokeClassicGeo,
+    meshSpokeGeo,
+    beadlockRingGeo,
+    turboDishGeo,
+    hubCapGeo,
+    rotorGeo,
+    caliperGeo,
+  );
 
   const wheels: THREE.Mesh[] = [];
-  const makeWheel = (x: number, y: number, z: number): THREE.Mesh => {
+  const wheelRimSets: {
+    classic: THREE.Group;
+    beadlock: THREE.Group;
+    mesh: THREE.Group;
+    turbo: THREE.Group;
+  }[] = [];
+
+  const makeWheel = (x: number, y: number, z: number, sideSign: number): THREE.Mesh => {
     const tire = new THREE.Mesh(wheelGeo, tireMat);
     tire.castShadow = true;
     tire.receiveShadow = true;
     const barrel = new THREE.Mesh(rimBarrelGeo, trimMat);
     const rotor = new THREE.Mesh(rotorGeo, metalMat);
-    tire.add(barrel, rotor);
+    const caliper = new THREE.Mesh(caliperGeo, accentMat);
+    caliper.position.set(-sideSign * 0.06, 0.11, -0.07);
+    tire.add(barrel, rotor, caliper);
 
-    for (let s = 0; s < 3; s++) {
-      const spoke = new THREE.Mesh(spokeGeo, accentMat);
-      spoke.rotation.x = (s * Math.PI) / 3;
-      tire.add(spoke);
+    // 1. Classic 5-spoke
+    const classicGrp = new THREE.Group();
+    for (let s = 0; s < 5; s++) {
+      const sp = new THREE.Mesh(spokeClassicGeo, metalMat);
+      const a = (s * Math.PI * 2) / 5;
+      sp.rotation.x = a;
+      sp.position.set(0, Math.cos(a) * 0.12, Math.sin(a) * 0.12);
+      classicGrp.add(sp);
     }
 
-    const cap = new THREE.Mesh(hubCapGeo, metalMat);
+    // 2. Offroad Beadlock
+    const beadlockGrp = new THREE.Group();
+    const bRingOuter = new THREE.Mesh(beadlockRingGeo, accentMat);
+    bRingOuter.position.x = sideSign * 0.16;
+    beadlockGrp.add(bRingOuter);
+    for (let s = 0; s < 3; s++) {
+      const sp = new THREE.Mesh(meshSpokeGeo, trimMat);
+      sp.rotation.x = (s * Math.PI) / 3;
+      beadlockGrp.add(sp);
+    }
+
+    // 3. Aero Mesh (10-spoke cross-lace)
+    const meshGrp = new THREE.Group();
+    for (let s = 0; s < 5; s++) {
+      const sp = new THREE.Mesh(meshSpokeGeo, metalMat);
+      sp.rotation.x = (s * Math.PI) / 5;
+      meshGrp.add(sp);
+    }
+
+    // 4. Turbo-Fan
+    const turboGrp = new THREE.Group();
+    const dish = new THREE.Mesh(turboDishGeo, metalMat);
+    const fanRing = new THREE.Mesh(beadlockRingGeo, accentMat);
+    fanRing.position.x = sideSign * 0.155;
+    turboGrp.add(dish, fanRing);
+
+    tire.add(classicGrp, beadlockGrp, meshGrp, turboGrp);
+    wheelRimSets.push({
+      classic: classicGrp,
+      beadlock: beadlockGrp,
+      mesh: meshGrp,
+      turbo: turboGrp,
+    });
+
+    const cap = new THREE.Mesh(hubCapGeo, accentMat);
     tire.add(cap);
     tire.position.set(x, y, z);
     wheels.push(tire);
@@ -645,16 +850,34 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
 
   const frontLeftSteer = new THREE.Group();
   frontLeftSteer.position.set(-0.96, 0.43, -1.05);
-  frontLeftSteer.add(makeWheel(0, 0, 0));
+  frontLeftSteer.add(makeWheel(0, 0, 0, -1));
 
   const frontRightSteer = new THREE.Group();
   frontRightSteer.position.set(0.96, 0.43, -1.05);
-  frontRightSteer.add(makeWheel(0, 0, 0));
+  frontRightSteer.add(makeWheel(0, 0, 0, 1));
 
-  const rlWheel = makeWheel(-0.96, 0.43, 1.05);
-  const rrWheel = makeWheel(0.96, 0.43, 1.05);
+  const rlWheel = makeWheel(-0.96, 0.43, 1.05, -1);
+  const rrWheel = makeWheel(0.96, 0.43, 1.05, 1);
 
   root.add(frontLeftSteer, frontRightSteer, rlWheel, rrWheel);
+
+  // 10B. Double-Jump Shockwave Ring Effect beneath chassis
+  const djRingGeo = new THREE.RingGeometry(0.65, 1.15, 24);
+  djRingGeo.rotateX(-Math.PI / 2);
+  geometries.push(djRingGeo);
+  const djRingMat = new THREE.MeshBasicMaterial({
+    color: 0x3ad6cf,
+    transparent: true,
+    opacity: 0,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  materials.push(djRingMat);
+  const djRingMesh = new THREE.Mesh(djRingGeo, djRingMat);
+  djRingMesh.position.set(0, 0.25, 0);
+  djRingMesh.visible = false;
+  root.add(djRingMesh);
+  let djRingLife = 0;
 
   // 11. Contact shadow disc directly under vehicle
   const shadowTex = createShadowDiscTexture();
@@ -680,6 +903,15 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
 
   const setReducedMotion = (enabled: boolean) => {
     reducedMotionEnabled = enabled;
+  };
+
+  const triggerDoubleJumpEffect = () => {
+    if (reducedMotionEnabled) return;
+    djRingLife = 1.0;
+    djRingMesh.scale.setScalar(0.85);
+    djRingMesh.position.y = 0.22;
+    djRingMat.opacity = 0.9;
+    djRingMesh.visible = true;
   };
 
   const setHeadlightsOn = (on: boolean, ambientDark = false) => {
@@ -713,11 +945,16 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
     roofRack.visible = chassis !== 'rally';
     roofRack.position.y = chassis === 'rover' ? 1.74 : 1.56;
     windshield.position.y = chassis === 'rover' ? 1.33 : chassis === 'rally' ? 1.13 : 1.24;
+    aPillarL.position.y = windshield.position.y;
+    aPillarR.position.y = windshield.position.y;
+    wiperL.position.y = windshield.position.y - 0.19;
+    wiperR.position.y = windshield.position.y - 0.19;
     sideWinL.position.y = chassis === 'rover' ? 1.34 : chassis === 'rally' ? 1.14 : 1.26;
     sideWinR.position.y = chassis === 'rover' ? 1.34 : chassis === 'rally' ? 1.14 : 1.26;
     rearWin.position.y = chassis === 'rover' ? 1.32 : chassis === 'rally' ? 1.12 : 1.22;
     stripeL.position.y = chassis === 'rally' ? 0.88 : chassis === 'rover' ? 1.06 : 0.99;
     stripeR.position.y = chassis === 'rally' ? 0.88 : chassis === 'rover' ? 1.06 : 0.99;
+    hoodScoop.position.y = chassis === 'rally' ? 0.91 : chassis === 'rover' ? 1.09 : 1.02;
 
     bodyMat.color.set(config.paintColor);
     accentMat.color.set(config.accentColor);
@@ -730,6 +967,14 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
       w.scale.set(widthFactor, scaleFactor, scaleFactor);
     }
 
+    const rimStyle = config.rimStyle || 'classic-5spoke';
+    for (const rs of wheelRimSets) {
+      rs.classic.visible = rimStyle === 'classic-5spoke';
+      rs.beadlock.visible = rimStyle === 'offroad-beadlock';
+      rs.mesh.visible = rimStyle === 'aero-mesh';
+      rs.turbo.visible = rimStyle === 'turbo-fan';
+    }
+
     const acc = config.accessory || 'spare-tire';
     spareGroup.visible = acc === 'spare-tire';
     spareGroup.position.y = chassis === 'rover' ? 1.86 : chassis === 'rally' ? 1.46 : 1.68;
@@ -739,6 +984,8 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
     cargoGroup.position.y = chassis === 'rover' ? 1.94 : chassis === 'rally' ? 1.52 : 1.75;
     spoilerGroup.visible = acc === 'spoiler';
     spoilerGroup.position.y = chassis === 'rover' ? 1.5 : chassis === 'rally' ? 1.1 : 1.18;
+    trailRackGroup.visible = acc === 'trail-expedition-rack';
+    trailRackGroup.position.y = chassis === 'rover' ? 1.88 : chassis === 'rally' ? 1.48 : 1.7;
 
     const hl = config.headlightEffect || 'warm-halogen';
     if (hl === 'cool-led') {
@@ -816,6 +1063,17 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
       boostFlameLeft.scale.set(1, 1, flicker);
       boostFlameRight.scale.set(1, 1, flicker);
     }
+
+    if (djRingLife > 0) {
+      djRingLife = Math.max(0, djRingLife - dt * 2.6);
+      const p = 1 - djRingLife;
+      djRingMesh.scale.setScalar(0.9 + p * 2.6);
+      djRingMesh.position.y = 0.22 - p * 0.35;
+      djRingMat.opacity = djRingLife * 0.88;
+      if (djRingLife <= 0) {
+        djRingMesh.visible = false;
+      }
+    }
   };
 
   const dispose = () => {
@@ -838,6 +1096,7 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
     setHeadlightsOn,
     setGhostMode,
     setReducedMotion,
+    triggerDoubleJumpEffect,
     updateVisuals,
     dispose,
   };

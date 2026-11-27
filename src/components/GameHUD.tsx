@@ -50,11 +50,13 @@ interface GameHUDProps {
   onClearObjective?: () => void;
   onOpenMenu: () => void;
   onOpenMap: () => void;
+  onOpenMissions?: () => void;
   onToggleAudio: () => void;
   onToggleHeadlights: () => void;
   onEnterPhotoMode: () => void;
   onCycleCamera: () => void;
   onRespawn: () => void;
+  onRecover?: () => void;
   onPause: () => void;
   onInteract: (landmark: WorldLandmark) => void;
   onRestartChallenge: () => void;
@@ -96,11 +98,13 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onClearObjective,
   onOpenMenu,
   onOpenMap,
+  onOpenMissions,
   onToggleAudio,
   onToggleHeadlights,
   onEnterPhotoMode,
   onCycleCamera,
   onRespawn,
+  onRecover,
   onPause,
   onInteract,
   onRestartChallenge,
@@ -171,14 +175,15 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             <Menu className="w-5 h-5" />
           </button>
 
-          <div className="ui-hud-panel px-3 sm:px-3.5 py-1.5 sm:py-2 flex items-center gap-2.5 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-[#EC6D2C]/15 border border-[#EC6D2C]/35 flex items-center justify-center shrink-0">
-              <MapPin className="w-4 h-4 text-[#EC6D2C]" />
+          <div className="ui-hud-panel px-2.5 sm:px-3.5 py-1.5 sm:py-2 flex items-center gap-2 sm:gap-2.5 min-w-0 overflow-hidden">
+            <div className="hidden xs:flex sm:flex w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-[#EC6D2C]/15 border border-[#EC6D2C]/35 items-center justify-center shrink-0">
+              <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#EC6D2C]" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-[10px] sm:text-[11px] font-extrabold tracking-wider text-[#61564E] leading-none whitespace-nowrap">
                 <span className="tabular-nums">
-                  {discoveredIds.length}/{totalLandmarks} ZONES
+                  {discoveredIds.length}/{totalLandmarks}
+                  <span className="hidden sm:inline"> ZONES</span>
                 </span>
                 <span className="hidden sm:inline-flex items-center gap-0.5 text-[#21968B] tabular-nums">
                   <Sparkles className="w-3 h-3" />
@@ -190,7 +195,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                   {WEATHER_SHORT[weatherMode].toUpperCase()}
                 </span>
               </div>
-              <div className="text-xs sm:text-sm font-extrabold text-[#26211E] leading-tight mt-0.5 truncate max-w-[112px] sm:max-w-[230px]">
+              <div className="text-xs sm:text-sm font-extrabold text-[#26211E] leading-tight mt-0.5 truncate max-w-[104px] sm:max-w-[230px]">
                 {hud.zoneName}
               </div>
             </div>
@@ -244,6 +249,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 <div className="flex items-center justify-between gap-2 text-[10px] text-[#EC6D2C]">
                   <span className="truncate">
                     {ch.title} · {ch.progressText}
+                    {ch.liveScore !== undefined && ch.targetScore
+                      ? ` · ${ch.liveScore.toLocaleString()}/${ch.targetScore.toLocaleString()} PTS`
+                      : ''}
                   </span>
                   {ch.timerSec !== null && (
                     <span className="text-[#E65448] tabular-nums shrink-0">
@@ -403,6 +411,24 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
         {/* Top-Right Utility Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto shrink-0">
+          {onOpenMissions && (
+            <button
+              type="button"
+              tabIndex={-1}
+              data-testid="hud-missions-btn"
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onOpenMissions();
+              }}
+              aria-label="Open Missions & Challenges"
+              title="Missions & Challenges (15 modes)"
+              className="ui-hud-panel ui-btn w-11 h-11 sm:w-auto sm:h-11 sm:px-3 text-xs text-[#26211E] hover:bg-[#F5E9D4]"
+            >
+              <Flag className="w-4 h-4 text-[#EC6D2C]" />
+              <span className="hidden sm:inline">Missions</span>
+            </button>
+          )}
+
           <button
             type="button"
             tabIndex={-1}
@@ -550,97 +576,175 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             : 'pb-0'
         }`}
       >
-        {/* Bottom-Left: Tactile Speedometer & Radial Gauge */}
-        <div className="ui-hud-panel rounded-2xl px-3.5 py-2.5 sm:px-4 sm:py-3 [@media(max-height:480px)]:py-2 min-w-[144px] sm:min-w-[202px]">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <span
-                  className="w-2 h-2 rounded-full shrink-0"
-                  style={{ backgroundColor: drivingState.color }}
-                  aria-hidden="true"
-                />
-                <span
-                  className="text-[10px] font-extrabold tracking-wider leading-none"
-                  style={{ color: drivingState.color }}
-                >
-                  {drivingState.text}
-                </span>
+        {/* Bottom-Left: Telemetry Alerts + Tactile Speedometer & Radial Gauge */}
+        <div className="flex flex-col items-start gap-2">
+          {hud.isOverturned && (
+            <button
+              type="button"
+              tabIndex={-1}
+              data-testid="hud-overturned-alert"
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onRecover?.();
+              }}
+              className="pointer-events-auto ui-hud-panel-dark border-[#E65448] px-3 py-2 rounded-xl text-left cursor-pointer hover:bg-[#3A2825] min-w-[196px]"
+            >
+              <div className="text-[11px] font-extrabold text-[#FFE08A] flex items-center justify-between gap-2">
+                <span>OVERTURNED · PRESS F</span>
+                <RotateCcw className="w-3.5 h-3.5 text-[#E65448]" />
               </div>
-              <div className="flex items-baseline gap-1.5">
-                <span
-                  data-testid="hud-speed"
-                  className="text-2xl sm:text-3xl font-extrabold tabular-nums text-[#26211E] leading-none"
-                >
-                  {hud.speedKmh}
-                </span>
-                <span className="text-[10px] sm:text-[11px] font-extrabold tracking-wider text-[#61564E]">
-                  KM/H
+              <div className="mt-1.5 w-full h-1.5 rounded-full bg-[#3F3834] overflow-hidden">
+                <div
+                  className="h-full bg-[#EC6D2C] transition-[width] duration-100"
+                  style={{ width: `${Math.round(hud.autoRecoverProgress * 100)}%` }}
+                />
+              </div>
+            </button>
+          )}
+
+          {(hud.isDrifting || hud.driftScoreActive > 0) && (
+            <div
+              data-testid="hud-drift-badge"
+              className="ui-hud-panel-dark border-[#EC6D2C] px-3 py-1.5 rounded-xl flex items-center gap-2 text-xs font-extrabold tabular-nums"
+            >
+              <span className="text-[#EC6D2C]">DRIFT</span>
+              <span className="text-[#FFF9F0]">+{hud.driftScoreActive.toLocaleString()}</span>
+              <span className="px-1.5 py-0.5 rounded bg-[#EC6D2C]/25 text-[#FFE08A] text-[10px]">
+                x{hud.driftCombo.toFixed(1)}
+              </span>
+            </div>
+          )}
+
+          {hud.waterState !== 'dry' && (
+            <div
+              data-testid="hud-water-state"
+              className={`px-3 py-1.5 rounded-xl border-[1.5px] text-[11px] font-extrabold tabular-nums ${
+                hud.waterState === 'deep-warning'
+                  ? 'bg-[#E65448] border-[#26211E] text-[#FFF9F0]'
+                  : 'ui-hud-panel-dark border-[#21968B] text-[#7FD4DE]'
+              }`}
+            >
+              {hud.waterState === 'deep-warning'
+                ? 'DEEP WATER HAZARD · RECOVERING'
+                : hud.waterState === 'entry'
+                  ? 'WATER ENTRY'
+                  : hud.waterState === 'exit'
+                    ? 'WATER EXIT'
+                    : `SHALLOW WATER · ${hud.waterDepth.toFixed(2)}m`}
+            </div>
+          )}
+
+          <div className="ui-hud-panel rounded-2xl px-3.5 py-2.5 sm:px-4 sm:py-3 [@media(max-height:480px)]:py-2 min-w-[152px] sm:min-w-[208px]">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: drivingState.color }}
+                    aria-hidden="true"
+                  />
+                  <span
+                    className="text-[10px] font-extrabold tracking-wider leading-none"
+                    style={{ color: drivingState.color }}
+                  >
+                    {drivingState.text}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-1.5">
+                  <span
+                    data-testid="hud-speed"
+                    className="text-2xl sm:text-3xl font-extrabold tabular-nums text-[#26211E] leading-none"
+                  >
+                    {hud.speedKmh}
+                  </span>
+                  <span className="text-[10px] sm:text-[11px] font-extrabold tracking-wider text-[#61564E]">
+                    KM/H
+                  </span>
+                </div>
+              </div>
+
+              {/* Radial speed arc gauge SVG with calibration ticks */}
+              <svg viewBox="0 0 88 48" className="w-14 h-8 shrink-0 hidden sm:block" aria-hidden="true">
+                <path
+                  d="M 8 42 A 36 36 0 0 1 80 42"
+                  fill="none"
+                  stroke="#E6D3B5"
+                  strokeWidth="7"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M 8 42 A 36 36 0 0 1 80 42"
+                  fill="none"
+                  stroke={hud.isBoosting ? '#E65448' : '#EC6D2C'}
+                  strokeWidth="7"
+                  strokeLinecap="round"
+                  strokeDasharray={arcLen}
+                  strokeDashoffset={arcOffset}
+                />
+                {[0.25, 0.5, 0.75].map((t) => {
+                  const ang = Math.PI * (1 - t);
+                  const x1 = 44 + Math.cos(ang) * 28;
+                  const y1 = 42 - Math.sin(ang) * 28;
+                  const x2 = 44 + Math.cos(ang) * 32;
+                  const y2 = 42 - Math.sin(ang) * 32;
+                  return (
+                    <line
+                      key={t}
+                      x1={x1}
+                      y1={y1}
+                      x2={x2}
+                      y2={y2}
+                      stroke="#61564E"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      opacity="0.55"
+                    />
+                  );
+                })}
+                <circle
+                  cx={44 - Math.cos(speedRatio * Math.PI) * 36}
+                  cy={42 - Math.sin(speedRatio * Math.PI) * 36}
+                  r="4.4"
+                  fill="#26211E"
+                  stroke="#FFF9F0"
+                  strokeWidth="1.5"
+                />
+              </svg>
+            </div>
+
+            <div className="mt-2 flex items-center justify-between text-[10px] font-extrabold text-[#61564E]">
+              <span>NITRO BOOST</span>
+              <span className="tabular-nums text-[#26211E]">{hud.boostCharge}%</span>
+            </div>
+            <div className="mt-1 ui-progress-track h-2">
+              <div
+                className="ui-progress-fill"
+                style={{
+                  width: `${hud.boostCharge}%`,
+                  backgroundColor: hud.isBoosting ? '#E65448' : '#21968B',
+                }}
+              />
+            </div>
+
+            <div className="mt-2 flex items-center justify-between gap-2.5 text-[10px] font-extrabold text-[#61564E]">
+              <span className="whitespace-nowrap">
+                <span className="sm:hidden">2X JUMP</span>
+                <span className="hidden sm:inline">DOUBLE JUMP</span>
+              </span>
+              <div className="flex items-center gap-1 shrink-0" data-testid="hud-jump-pips">
+                {[0, 1].map((idx) => (
+                  <span
+                    key={idx}
+                    className={`w-3.5 h-1.5 rounded-xs border border-[#26211E] ${
+                      idx < hud.jumpsRemaining ? 'bg-[#EC6D2C]' : 'bg-[#E6D3B5]'
+                    }`}
+                  />
+                ))}
+                <span className="tabular-nums text-[#26211E] ml-0.5">
+                  {hud.jumpsRemaining}/{hud.maxJumps}
                 </span>
               </div>
             </div>
-
-            {/* Radial speed arc gauge SVG with calibration ticks */}
-            <svg viewBox="0 0 88 48" className="w-14 h-8 shrink-0 hidden sm:block" aria-hidden="true">
-              <path
-                d="M 8 42 A 36 36 0 0 1 80 42"
-                fill="none"
-                stroke="#E6D3B5"
-                strokeWidth="7"
-                strokeLinecap="round"
-              />
-              <path
-                d="M 8 42 A 36 36 0 0 1 80 42"
-                fill="none"
-                stroke={hud.isBoosting ? '#E65448' : '#EC6D2C'}
-                strokeWidth="7"
-                strokeLinecap="round"
-                strokeDasharray={arcLen}
-                strokeDashoffset={arcOffset}
-              />
-              {[0.25, 0.5, 0.75].map((t) => {
-                const ang = Math.PI * (1 - t);
-                const x1 = 44 + Math.cos(ang) * 28;
-                const y1 = 42 - Math.sin(ang) * 28;
-                const x2 = 44 + Math.cos(ang) * 32;
-                const y2 = 42 - Math.sin(ang) * 32;
-                return (
-                  <line
-                    key={t}
-                    x1={x1}
-                    y1={y1}
-                    x2={x2}
-                    y2={y2}
-                    stroke="#61564E"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    opacity="0.55"
-                  />
-                );
-              })}
-              <circle
-                cx={44 - Math.cos(speedRatio * Math.PI) * 36}
-                cy={42 - Math.sin(speedRatio * Math.PI) * 36}
-                r="4.4"
-                fill="#26211E"
-                stroke="#FFF9F0"
-                strokeWidth="1.5"
-              />
-            </svg>
-          </div>
-
-          <div className="mt-2 flex items-center justify-between text-[10px] font-extrabold text-[#61564E]">
-            <span>NITRO BOOST</span>
-            <span className="tabular-nums text-[#26211E]">{hud.boostCharge}%</span>
-          </div>
-          <div className="mt-1 ui-progress-track h-2">
-            <div
-              className="ui-progress-fill"
-              style={{
-                width: `${hud.boostCharge}%`,
-                backgroundColor: hud.isBoosting ? '#E65448' : '#21968B',
-              }}
-            />
           </div>
         </div>
 
@@ -676,7 +780,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           )}
 
           <div className="hidden lg:block ui-hud-panel-dark px-3.5 py-1.5 text-xs font-semibold">
-            WASD Drive · Drag Rotate · Scroll Zoom · Shift Boost · Space Jump · B Brake · M Map
+            WASD Drive · Drag Orbit · Shift Boost · Space x2 Jump · X Drift · F Recover · M Map
           </div>
         </div>
 

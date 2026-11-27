@@ -11,6 +11,7 @@ import type {
   GamePhase,
   GameSettings,
   GhostSample,
+  MissionCatalogItem,
   VehicleConfig,
   WorldLandmark,
 } from '../types/portfolio';
@@ -20,7 +21,9 @@ import { ChallengeManager, type ChallengeTickEffects } from './challengeControll
 import { GameControls } from './controls';
 import {
   clampDt,
+  computeGroundHeight,
   findNearestLandmark,
+  getBridgeColliderSegments,
   getZoneName,
   speedMsToKmh,
 } from './physicsMath';
@@ -41,6 +44,7 @@ export interface DevPerfStats {
 
 const _yAxis = new THREE.Vector3(0, 1, 0);
 const _tmpVec2 = new THREE.Vector2();
+const _hudEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 
 export interface SceneManagerCallbacks {
   onReady: () => void;
@@ -56,6 +60,7 @@ export interface SceneManagerCallbacks {
   onStartFromTitle: () => void;
   onAchievementTrigger: (id: string) => void;
   onChallengeCompleted: (challengeId: string) => void;
+  onChallengeMetric?: (id: Exclude<ActiveChallengeId, null>, value: number) => void;
   onCollectiblePicked?: (id: string, label: string, found: number, total: number) => void;
   onToast?: (message: string) => void;
   onRaceLapCompleted?: (lapSeconds: number, ghostFrames: GhostSample[]) => void;
@@ -127,9 +132,34 @@ export class SceneManager {
   private dustNeedsClear = false;
   private dustAnyActive = false;
 
-  // DEV-only performance monitor accumulators
+  // Pooled shallow-water splash particle ring buffer (36 instances)
+  private splashMesh: THREE.InstancedMesh | null = null;
+  private splashParticles: {
+    x: number;
+    y: number;
+    z: number;
+    vx: number;
+    vy: number;
+    vz: number;
+    life: number;
+    maxLife: number;
+  }[] = [];
+  private splashCursor = 0;
+  private splashDummy = new THREE.Object3D();
+  private splashNeedsClear = false;
+  private splashAnyActive = false;
+
+  // DEV-only performance & collision debug state
   private devAccumMs = 0;
   private devFrames = 0;
+  private collisionDebugGroup: THREE.Group | null = null;
+  private collisionDebugVisible = false;
+  private collisionVehicleBox: THREE.LineSegments | null = null;
+  private collisionDynBoxes: THREE.LineSegments[] = [];
+  private collisionDebugDisposables: {
+    geometries: THREE.BufferGeometry[];
+    materials: THREE.Material[];
+  } = { geometries: [], materials: [] };
 
   // Pooled tire skid mark ring buffer (96 instances)
   private skidMesh: THREE.InstancedMesh | null = null;
@@ -170,6 +200,9 @@ export class SceneManager {
       },
       onRespawn: () => {
         if (!this.panelOpen) this.respawnVehicle();
+      },
+      onRecover: () => {
+        if (!this.panelOpen) this.recoverVehicle();
       },
       onHorn: () => {
         if (!this.panelOpen) {
@@ -305,6 +338,28 @@ export class SceneManager {
     scene.add(dustMesh);
     this.dustMesh = dustMesh;
 
+    // Pooled water splash particles (36 instances)
+    const splashGeo = new THREE.DodecahedronGeometry(0.18, 0);
+    const splashMat = new THREE.MeshStandardMaterial({
+      color: 0xd8fff9,
+      roughness: 0.35,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const splashMesh = new THREE.InstancedMesh(splashGeo, splashMat, 36);
+    splashMesh.frustumCulled = false;
+    for (let i = 0; i < 36; i++) {
+      this.splashParticles.push({ x: 0, y: -50, z: 0, vx: 0, vy: 0, vz: 0, life: 0, maxLife: 0.45 });
+      this.splashDummy.position.set(0, -50, 0);
+      this.splashDummy.scale.setScalar(0);
+      this.splashDummy.updateMatrix();
+      splashMesh.setMatrixAt(i, this.splashDummy.matrix);
+    }
+    splashMesh.instanceMatrix.needsUpdate = true;
+    splashMesh.visible = !this.settings.reducedMotion && this.settings.quality !== 'low';
+    scene.add(splashMesh);
+    this.splashMesh = splashMesh;
+
     // Pooled tire skid marks (96 instances)
     const skidGeo = new THREE.PlaneGeometry(0.32, 0.72);
     skidGeo.rotateX(-Math.PI / 2);
@@ -435,8 +490,12 @@ export class SceneManager {
     this.worldEnv?.setSecurityGateOpen(open);
   }
 
-  setWaypointTarget(landmarkId: string | null): void {
-    this.worldEnv?.setWaypointTarget(landmarkId);
+  setWaypointTarget(
+    landmarkId: string | null,
+    colorHex?: string,
+    overridePos?: { x: number; z: number },
+  ): void {
+    this.worldEnv?.setWaypointTarget(landmarkId, colorHex, overridePos);
   }
 
   syncSavedRaceData(best: number | null, last: number | null, ghost: GhostSample[]): void {
@@ -446,6 +505,31 @@ export class SceneManager {
   startChallenge(id: Exclude<ActiveChallengeId, null>): void {
     const fx = this.challengeMgr.startChallenge(id);
     this.applyChallengeEffects(fx);
+    this.pushHudSnapshot();
+  }
+
+  startMission(item: MissionCatalogItem, onStartTour?: () => void): void {
+    if (item.mode === 'race') {
+      this.startPaddockRace();
+      return;
+    }
+    if (this.physics && this.vehicleRig && this.cameraRig) {
+      const sx = item.startPoint.x;
+      const sz = item.startPoint.z;
+      const yaw = item.startYaw ?? 0;
+      const gy = computeGroundHeight(sx, sz);
+      this.physics.teleportTo(sx, sz, yaw);
+      this.vehicleRig.root.position.set(sx, gy + 0.65, sz);
+      this.vehicleRig.root.quaternion.setFromAxisAngle(_yAxis, yaw);
+      this.cameraRig.snapToVehicle(this.vehicleRig.root.position, this.vehicleRig.root.quaternion);
+      this.renderer?.render(this.scene!, this.cameraRig.camera);
+    }
+    if (item.mode === 'tour') {
+      this.cancelActiveChallenge();
+      onStartTour?.();
+    } else if (item.challengeId) {
+      this.startChallenge(item.challengeId);
+    }
     this.pushHudSnapshot();
   }
 
@@ -501,6 +585,9 @@ export class SceneManager {
     if (this.dustMesh) {
       this.dustMesh.visible = !next.reducedMotion && next.quality !== 'low';
     }
+    if (this.splashMesh) {
+      this.splashMesh.visible = !next.reducedMotion && next.quality !== 'low';
+    }
     this.worldEnv?.applyWeatherMode(next.weatherMode, false);
     this.worldEnv?.setWindMode(next.windMode ?? 'auto');
     this.worldEnv?.setPerformanceProfile(
@@ -523,6 +610,131 @@ export class SceneManager {
     }
   }
 
+  toggleCollisionDebug(): boolean {
+    if (!import.meta.env.DEV || !this.scene) return false;
+    this.collisionDebugVisible = !this.collisionDebugVisible;
+    if (this.collisionDebugVisible && !this.collisionDebugGroup) {
+      this.buildCollisionDebugOverlay();
+    }
+    if (this.collisionDebugGroup) {
+      this.collisionDebugGroup.visible = this.collisionDebugVisible;
+    }
+    this.syncCollisionDebugDynamic();
+    if (this.renderer && this.cameraRig) {
+      this.renderer.render(this.scene, this.cameraRig.camera);
+    }
+    return this.collisionDebugVisible;
+  }
+
+  private buildCollisionDebugOverlay(): void {
+    if (!import.meta.env.DEV || !this.scene || !this.worldEnv || !this.physics) return;
+    const grp = new THREE.Group();
+    grp.name = 'DEV_CollisionDebugOverlay';
+
+    // 1. Terrain heightfield wireframe (green)
+    const span = 240;
+    const terrainPlane = new THREE.PlaneGeometry(span, span, 48, 48);
+    terrainPlane.rotateX(-Math.PI / 2);
+    const posAttr = terrainPlane.attributes.position;
+    for (let i = 0; i < posAttr.count; i++) {
+      const vx = posAttr.getX(i);
+      const vz = posAttr.getZ(i);
+      posAttr.setY(i, computeGroundHeight(vx, vz) + 0.08);
+    }
+    const terrainWire = new THREE.WireframeGeometry(terrainPlane);
+    terrainPlane.dispose();
+    const terrainMat = new THREE.LineBasicMaterial({
+      color: 0x4caf50,
+      transparent: true,
+      opacity: 0.42,
+    });
+    grp.add(new THREE.LineSegments(terrainWire, terrainMat));
+    this.collisionDebugDisposables.geometries.push(terrainWire);
+    this.collisionDebugDisposables.materials.push(terrainMat);
+
+    // Shared unit edges box geometry for cuboids
+    const unitBox = new THREE.BoxGeometry(1, 1, 1);
+    const unitEdges = new THREE.EdgesGeometry(unitBox);
+    unitBox.dispose();
+    this.collisionDebugDisposables.geometries.push(unitEdges);
+
+    const makeBoxMat = (hex: number) => {
+      const m = new THREE.LineBasicMaterial({ color: hex });
+      this.collisionDebugDisposables.materials.push(m);
+      return m;
+    };
+    const bridgeDeckMat = makeBoxMat(0x2196f3);
+    const railMat = makeBoxMat(0xff9800);
+    const tunnelMat = makeBoxMat(0xe91e63);
+    const buildingMat = makeBoxMat(0xf44336);
+    const treeMat = makeBoxMat(0x8bc34a);
+    const dynMat = makeBoxMat(0x00bcd4);
+    const vehMat = makeBoxMat(0xffeb3b);
+
+    // 2. Bridge deck colliders (blue)
+    for (const seg of getBridgeColliderSegments()) {
+      const wire = new THREE.LineSegments(unitEdges, bridgeDeckMat);
+      wire.position.set(seg.x, seg.y, seg.z);
+      wire.rotation.set(seg.pitchX, seg.yawY, seg.rollZ, 'YXZ');
+      wire.scale.set(seg.hx * 2, seg.hy * 2, seg.hz * 2);
+      grp.add(wire);
+    }
+
+    // 3. Static colliders color-coded by kind
+    for (const sc of this.worldEnv.staticColliders) {
+      const mat =
+        sc.kind === 'tunnel-wall'
+          ? tunnelMat
+          : sc.kind === 'bridge-rail' || sc.kind === 'ramp-rail'
+            ? railMat
+            : sc.kind === 'tree'
+              ? treeMat
+              : buildingMat;
+      const wire = new THREE.LineSegments(unitEdges, mat);
+      wire.position.set(sc.x, sc.y, sc.z);
+      wire.rotation.set(0, sc.ry ?? 0, 0);
+      wire.scale.set(sc.hx * 2, sc.hy * 2, sc.hz * 2);
+      grp.add(wire);
+    }
+
+    // 4. Dynamic crates & cones (cyan)
+    this.collisionDynBoxes = [];
+    for (let i = 0; i < this.worldEnv.dynamicProps.length; i++) {
+      const dp = this.worldEnv.dynamicProps[i];
+      const wire = new THREE.LineSegments(unitEdges, dynMat);
+      wire.scale.set(dp.hx * 2, dp.hy * 2, dp.hz * 2);
+      grp.add(wire);
+      this.collisionDynBoxes.push(wire);
+    }
+
+    // 5. Vehicle chassis collider (yellow: cuboid 0.95 x 0.55 x 1.7)
+    const vehWire = new THREE.LineSegments(unitEdges, vehMat);
+    vehWire.scale.set(1.9, 1.1, 3.4);
+    grp.add(vehWire);
+    this.collisionVehicleBox = vehWire;
+
+    this.scene.add(grp);
+    this.collisionDebugGroup = grp;
+  }
+
+  private syncCollisionDebugDynamic(): void {
+    if (!import.meta.env.DEV || !this.collisionDebugVisible || !this.physics) return;
+    if (this.collisionVehicleBox) {
+      const pos = this.physics.chassisBody.translation();
+      const rot = this.physics.chassisBody.rotation();
+      this.collisionVehicleBox.position.set(pos.x, pos.y, pos.z);
+      this.collisionVehicleBox.quaternion.set(rot.x, rot.y, rot.z, rot.w);
+    }
+    for (let i = 0; i < this.physics.dynamicBodies.length && i < this.collisionDynBoxes.length; i++) {
+      const db = this.physics.dynamicBodies[i];
+      const box = this.collisionDynBoxes[i];
+      const p = db.body.translation();
+      const r = db.body.rotation();
+      box.position.set(p.x, p.y, p.z);
+      box.quaternion.set(r.x, r.y, r.z, r.w);
+    }
+  }
+
   respawnVehicle(): void {
     this.physics?.respawn();
     if (this.vehicleRig && this.cameraRig) {
@@ -535,6 +747,18 @@ export class SceneManager {
       this.renderer?.render(this.scene!, this.cameraRig.camera);
     }
     soundEngine.playClick();
+  }
+
+  recoverVehicle(): void {
+    if (!this.physics || !this.vehicleRig || !this.cameraRig) return;
+    this.physics.recoverVehicle();
+    const pos = this.physics.chassisBody.translation();
+    const rot = this.physics.chassisBody.rotation();
+    this.vehicleRig.root.position.set(pos.x, pos.y, pos.z);
+    this.vehicleRig.root.quaternion.set(rot.x, rot.y, rot.z, rot.w);
+    soundEngine.playRecover();
+    this.callbacks.onToast?.('Vehicle recovered upright.');
+    this.pushHudSnapshot();
   }
 
   teleportToLandmark(landmark: WorldLandmark): void {
@@ -574,8 +798,16 @@ export class SceneManager {
     if (fx.bugHuntFoundIds !== undefined) this.worldEnv?.setBugHuntState(fx.bugHuntFoundIds);
     if (fx.memoryHighlightPadId !== undefined) this.worldEnv?.setMemoryPadHighlight(fx.memoryHighlightPadId);
     if (fx.treasureFoundIds !== undefined) this.worldEnv?.setTreasureState(fx.treasureFoundIds);
+    if (fx.lagoonRunNextIdx !== undefined) this.worldEnv?.setLagoonRunProgress(fx.lagoonRunNextIdx);
+    if (fx.driftGateNextIdx !== undefined) this.worldEnv?.setDriftGateProgress(fx.driftGateNextIdx);
+    if (fx.stuntAirFoundIds !== undefined) this.worldEnv?.setStuntAirProgress(fx.stuntAirFoundIds);
+    if (fx.parkingBayState !== undefined) {
+      this.worldEnv?.setParkingBayProgress(fx.parkingBayState.nextIdx, fx.parkingBayState.alignPct);
+    }
+    if (fx.forestTrailNextIdx !== undefined) this.worldEnv?.setForestTrailProgress(fx.forestTrailNextIdx);
     if (fx.unlockAchievementId) this.callbacks.onAchievementTrigger(fx.unlockAchievementId);
     if (fx.completeChallengeId) this.callbacks.onChallengeCompleted(fx.completeChallengeId);
+    if (fx.challengeMetric) this.callbacks.onChallengeMetric?.(fx.challengeMetric.id, fx.challengeMetric.value);
     if (fx.toastMessage) this.callbacks.onToast?.(fx.toastMessage);
     if (fx.raceFinished) {
       this.callbacks.onRaceLapCompleted?.(fx.raceFinished.lapSeconds, fx.raceFinished.ghostFrames);
@@ -586,6 +818,7 @@ export class SceneManager {
     if (!this.physics || !this.vehicleRig) return;
     const pos = this.vehicleRig.root.position;
     const speedKmh = speedMsToKmh(this.physics.forwardSpeed);
+    _hudEuler.setFromQuaternion(this.vehicleRig.root.quaternion, 'YXZ');
 
     let orbsFound = 0;
     let totalOrbs = 0;
@@ -620,6 +853,20 @@ export class SceneManager {
       isBoosting: this.physics.isBoosting,
       isDrifting: this.physics.isDrifting,
       isGrounded: this.physics.isGrounded,
+      jumpsRemaining: this.physics.jumpsRemaining,
+      maxJumps: 2,
+      isOverturned: this.physics.isOverturned,
+      autoRecoverProgress: this.physics.isOverturned
+        ? Math.min(1, this.physics.overturnedSec / 2.8)
+        : 0,
+      waterState: this.physics.waterState,
+      waterDepth: this.physics.waterDepth,
+      driftScoreActive: Math.round(this.physics.driftActiveScore),
+      driftCombo: this.physics.driftCombo,
+      driftTotalScore: Math.round(this.physics.driftTotalBanked),
+      stuntScore: this.challengeMgr.getLiveStuntScore(),
+      pitchDeg: Math.round((_hudEuler.x * 180) / Math.PI),
+      rollDeg: Math.round((_hudEuler.z * 180) / Math.PI),
       headlightsOn: this.settings.headlightsOn,
       zoneName: getZoneName(pos.x, pos.z, WORLD_LANDMARKS),
       nearestLandmark: this.currentNearest,
@@ -700,6 +947,50 @@ export class SceneManager {
     this.dustMesh.instanceMatrix.needsUpdate = true;
     this.dustNeedsClear = this.dustAnyActive && !anyAlive;
     this.dustAnyActive = anyAlive;
+  }
+
+  private spawnSplash(x: number, z: number, intensity = 1): void {
+    if (this.settings.reducedMotion || this.settings.quality === 'low') return;
+    const p = this.splashParticles[this.splashCursor];
+    this.splashCursor = (this.splashCursor + 1) % this.splashParticles.length;
+    p.x = x + (Math.random() - 0.5) * 1.4;
+    p.y = -0.18;
+    p.z = z + (Math.random() - 0.5) * 1.4;
+    p.vx = (Math.random() - 0.5) * 2.8 * intensity;
+    p.vy = (1.8 + Math.random() * 1.9) * intensity;
+    p.vz = (Math.random() - 0.5) * 2.8 * intensity;
+    p.maxLife = 0.42 + Math.random() * 0.2;
+    p.life = p.maxLife;
+    this.splashAnyActive = true;
+  }
+
+  private updateSplashes(dt: number): void {
+    if (!this.splashMesh) return;
+    if (!this.splashAnyActive && !this.splashNeedsClear) return;
+
+    let anyAlive = false;
+    for (let i = 0; i < this.splashParticles.length; i++) {
+      const p = this.splashParticles[i];
+      if (p.life > 0) {
+        anyAlive = true;
+        p.life -= dt;
+        p.vy -= 9.8 * dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.z += p.vz * dt;
+        const t = Math.max(0, p.life / p.maxLife);
+        this.splashDummy.position.set(p.x, p.y, p.z);
+        this.splashDummy.scale.setScalar(t * 1.2);
+      } else {
+        this.splashDummy.position.set(0, -50, 0);
+        this.splashDummy.scale.setScalar(0);
+      }
+      this.splashDummy.updateMatrix();
+      this.splashMesh.setMatrixAt(i, this.splashDummy.matrix);
+    }
+    this.splashMesh.instanceMatrix.needsUpdate = true;
+    this.splashNeedsClear = this.splashAnyActive && !anyAlive;
+    this.splashAnyActive = anyAlive;
   }
 
   private handleResize = (): void => {
@@ -790,8 +1081,29 @@ export class SceneManager {
       if (simOut.justJumped) {
         soundEngine.playJump();
       }
+      if (simOut.justDoubleJumped) {
+        soundEngine.playDoubleJump();
+        this.vehicleRig.triggerDoubleJumpEffect();
+        this.cameraRig.addTrauma(0.18);
+      }
       if (simOut.justLanded) {
-        this.cameraRig.addTrauma(0.28);
+        this.cameraRig.addTrauma(Math.min(0.42, 0.16 + simOut.landImpactIntensity * 0.25));
+        soundEngine.playLand(simOut.landImpactIntensity);
+        if (this.physics.waterState !== 'dry') {
+          this.spawnSplash(simOut.position.x, simOut.position.z, 1.45);
+        }
+      }
+      if (simOut.justRecovered) {
+        soundEngine.playRecover();
+        if (simOut.justRescuedDeepWater) {
+          this.callbacks.onToast?.('Deep water hazard — rescued safely back to shore!');
+        }
+      }
+      if (simOut.justEnteredWater) {
+        soundEngine.playWaterSplash(true);
+        this.spawnSplash(simOut.position.x, simOut.position.z, 1.5);
+      } else if (simOut.justExitedWater) {
+        soundEngine.playWaterSplash(false);
       }
       if (simOut.collisionImpact > 0.15) {
         this.cameraRig.addTrauma(simOut.collisionImpact * 0.45);
@@ -801,11 +1113,25 @@ export class SceneManager {
         }
       }
 
+      const inWater =
+        this.physics.waterState === 'entry' ||
+        this.physics.waterState === 'shallow' ||
+        this.physics.waterState === 'deep-warning';
+      this.worldEnv?.setVehicleWake(
+        simOut.position.x,
+        simOut.position.z,
+        Math.abs(this.physics.forwardSpeed),
+        inWater,
+      );
+
       const speedKmh = speedMsToKmh(this.physics.forwardSpeed);
       if (!this.settings.reducedMotion && this.settings.quality !== 'low') {
         const dustRate = this.physics.isBoosting ? 0.65 : 0.25;
-        if (
+        if (inWater && speedKmh > 6 && Math.random() < 0.55) {
+          this.spawnSplash(simOut.position.x, simOut.position.z, 0.8 + this.physics.waterSplashIntensity * 0.7);
+        } else if (
           !locked &&
+          !inWater &&
           speedKmh > 6 &&
           this.physics.isGrounded &&
           (this.physics.isDrifting || Math.random() < dustRate)
@@ -814,7 +1140,7 @@ export class SceneManager {
         }
       }
 
-      if (!locked && this.physics.isDrifting && this.physics.isGrounded && speedKmh > 12) {
+      if (!locked && !inWater && this.physics.isDrifting && this.physics.isGrounded && speedKmh > 12) {
         this.skidDistAccum += Math.abs(this.physics.forwardSpeed) * dt;
         if (this.skidDistAccum >= 0.45) {
           this.skidDistAccum = 0;
@@ -834,6 +1160,7 @@ export class SceneManager {
         intent.throttle,
         intent.brake,
         this.settings.weatherMode,
+        inWater,
       );
       this.cameraRig.updateGameplay(
         simOut.position,
@@ -842,6 +1169,8 @@ export class SceneManager {
         this.physics.isBoosting,
         this.settings.cameraMode,
         dt,
+        this.physics.isDrifting,
+        this.physics.getYaw(),
       );
 
       // Collectibles detection (Orbs, Tokens, Fragments, Secret Relics)
@@ -881,7 +1210,18 @@ export class SceneManager {
       }
 
       // Challenges & Paddock Race update
-      const cFx = this.challengeMgr.tick(simOut.position.x, simOut.position.z, dt);
+      const cFx = this.challengeMgr.tick(simOut.position.x, simOut.position.z, dt, {
+        py: simOut.position.y,
+        yaw: this.physics.getYaw(),
+        speedMs: this.physics.forwardSpeed,
+        isGrounded: this.physics.isGrounded,
+        isOverturned: this.physics.isOverturned,
+        justDoubleJumped: simOut.justDoubleJumped,
+        justLanded: simOut.justLanded,
+        driftActiveScore: this.physics.driftActiveScore,
+        driftBankedNow: simOut.driftBankedNow,
+        driftPenalizedNow: simOut.driftPenalizedNow,
+      });
       this.applyChallengeEffects(cFx);
 
       // Ghost Vehicle Playback
@@ -927,6 +1267,10 @@ export class SceneManager {
     }
 
     this.updateDust(dt);
+    this.updateSplashes(dt);
+    if (import.meta.env.DEV && this.collisionDebugVisible) {
+      this.syncCollisionDebugDynamic();
+    }
     this.renderer.render(this.scene, this.cameraRig.camera);
 
     if (import.meta.env.DEV && this.callbacks.onDevTelemetry) {
@@ -984,9 +1328,21 @@ export class SceneManager {
       this.dustMesh.geometry.dispose();
       (this.dustMesh.material as THREE.Material).dispose();
     }
+    if (this.splashMesh) {
+      this.splashMesh.geometry.dispose();
+      (this.splashMesh.material as THREE.Material).dispose();
+    }
     if (this.skidMesh) {
       this.skidMesh.geometry.dispose();
       (this.skidMesh.material as THREE.Material).dispose();
+    }
+    if (this.collisionDebugGroup && this.scene) {
+      this.scene.remove(this.collisionDebugGroup);
+      this.collisionDebugDisposables.geometries.forEach((g) => g.dispose());
+      this.collisionDebugDisposables.materials.forEach((m) => m.dispose());
+      this.collisionDebugGroup = null;
+      this.collisionDynBoxes = [];
+      this.collisionVehicleBox = null;
     }
     if (this.renderer) {
       this.renderer.dispose();

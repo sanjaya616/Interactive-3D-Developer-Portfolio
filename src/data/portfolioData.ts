@@ -4,9 +4,11 @@ import type {
   CollectibleDef,
   HeadlightEffectType,
   LeaderboardEntry,
+  MissionCatalogItem,
   SecretLocationDef,
   VehicleAccessoryType,
   VehicleChassisType,
+  VehicleRimStyle,
   WeatherMode,
   WhisperMessage,
   WorldLandmark,
@@ -218,7 +220,7 @@ export const SECRET_LOCATIONS: SecretLocationDef[] = [
 export const WORLD_COLLECTIBLES: CollectibleDef[] = [
   // 8 Skill Orbs (required for TECH COLLECTOR)
   { id: 'orb-react', kind: 'orb', x: 0, z: -22, label: 'Skill Orb · React & TypeScript' },
-  { id: 'orb-three', kind: 'orb', x: -42, z: -4, label: 'Skill Orb · Three.js & WebGL' },
+  { id: 'orb-three', kind: 'orb', x: -42.65, z: 3.41, label: 'Skill Orb · Three.js & WebGL' },
   { id: 'orb-sql', kind: 'orb', x: 40, z: -22, label: 'Skill Orb · MySQL & PL/SQL' },
   { id: 'orb-php', kind: 'orb', x: -28, z: -28, label: 'Skill Orb · PHP & Laravel Craft' },
   { id: 'orb-kotlin', kind: 'orb', x: 54, z: 14, label: 'Skill Orb · Kotlin & Android' },
@@ -285,6 +287,136 @@ export const TREASURE_CHESTS: { id: string; label: string; x: number; z: number 
   { id: 'tr-2', label: 'Pine Trail Relic Chest', x: -24, z: -56 },
   { id: 'tr-3', label: 'Bridge Pier Chest', x: 30, z: -12 },
   { id: 'tr-4', label: 'South Cove Chest', x: -12, z: 58 },
+];
+
+// =========================================================================
+// EXPANSION DISTRICT COURSES & NEW CHALLENGE ARENA DEFINITIONS
+// =========================================================================
+export const FOREST_TRAIL_GATES: { id: string; label: string; x: number; z: number; radius: number }[] = [
+  { id: 'ft-1', label: 'Timber Gate · Trailhead', x: -64, z: -60, radius: 5.5 },
+  { id: 'ft-2', label: 'Fern Hollow Bend', x: -88, z: -76, radius: 5.5 },
+  { id: 'ft-3', label: 'Brook Timber Bridge', x: -104, z: -84, radius: 5.5 },
+  { id: 'ft-4', label: 'North Ridge Clearing', x: -120, z: -98, radius: 5.5 },
+  { id: 'ft-5', label: 'Whispering Pine Overlook', x: -126, z: -68, radius: 6.0 },
+];
+
+export const LAGOON_RUN_CHECKPOINTS: { id: string; label: string; x: number; z: number; radius: number; isWater: boolean }[] = [
+  { id: 'lr-1', label: 'Sand Bank Entry', x: -34, z: 92, radius: 5.6, isWater: false },
+  { id: 'lr-2', label: 'Buoy Gate East', x: -24, z: 112, radius: 6.2, isWater: true },
+  { id: 'lr-3', label: 'Lagoon Center Buoy', x: -38, z: 120, radius: 6.2, isWater: true },
+  { id: 'lr-4', label: 'West Channel Marker', x: -50, z: 116, radius: 6.2, isWater: true },
+  { id: 'lr-5', label: 'Timber Exit Ramp & Dock', x: -36, z: 141, radius: 6.0, isWater: false },
+];
+
+export const LAGOON_RUN_OBSTACLES: { id: string; kind: 'buoy' | 'rock'; x: number; z: number; radius: number }[] = [
+  { id: 'lo-1', kind: 'rock', x: -30, z: 108, radius: 1.5 },
+  { id: 'lo-2', kind: 'buoy', x: -33, z: 124, radius: 1.3 },
+  { id: 'lo-3', kind: 'rock', x: -44, z: 110, radius: 1.6 },
+  { id: 'lo-4', kind: 'buoy', x: -43, z: 128, radius: 1.3 },
+];
+
+export const DRIFT_CIRCUIT_CHECKPOINTS: { id: string; label: string; x: number; z: number; radius: number }[] = [
+  { id: 'dc-1', label: 'Hairpin North Entry', x: 96, z: 54, radius: 7.0 },
+  { id: 'dc-2', label: 'East Apex Sweeper', x: 132, z: 62, radius: 7.5 },
+  { id: 'dc-3', label: 'South Hairpin Curl', x: 126, z: 96, radius: 7.5 },
+  { id: 'dc-4', label: 'West Return Chicane', x: 88, z: 86, radius: 7.0 },
+];
+
+export interface StuntRampDef {
+  id: string;
+  label: string;
+  x: number;
+  z: number;
+  yaw: number;
+  width: number;
+  length: number;
+  height: number;
+  kind: 'launch' | 'gap-takeoff' | 'platform';
+}
+
+export const STUNT_ARENA_RAMPS: readonly StuntRampDef[] = [
+  { id: 'ramp-north-launch', label: 'Arena North Launch', x: 96, z: 68, yaw: 0, width: 6.4, length: 9.0, height: 2.35, kind: 'launch' },
+  { id: 'ramp-east-kicker', label: 'East Side Kicker', x: 118, z: 82, yaw: Math.PI * 0.5, width: 6.2, length: 8.6, height: 2.5, kind: 'launch' },
+  { id: 'ramp-dj-takeoff', label: 'Double-Jump Gap Takeoff', x: 106, z: 96, yaw: 0, width: 6.0, length: 8.5, height: 2.65, kind: 'gap-takeoff' },
+];
+
+export interface SkyPlatformDef {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  z: number;
+  width: number;
+  length: number;
+  thickness: number;
+}
+
+export const DOUBLE_JUMP_PLATFORMS: readonly SkyPlatformDef[] = [
+  { id: 'plat-1', label: 'Sky Step Alpha', x: 106, y: 3.1, z: 107.5, width: 7.4, length: 8.2, thickness: 0.55 },
+  { id: 'plat-2', label: 'Sky Deck Omega', x: 106, y: 4.9, z: 121.0, width: 8.4, length: 9.4, thickness: 0.6 },
+];
+
+export const STUNT_AIR_CHECKPOINTS: { id: string; label: string; x: number; y: number; z: number; radius: number }[] = [
+  { id: 'st-1', label: 'North Launch Crest', x: 96, y: 3.2, z: 75.5, radius: 5.5 },
+  { id: 'st-2', label: 'East Kicker Flight', x: 125.5, y: 3.5, z: 82, radius: 5.8 },
+  { id: 'st-3', label: 'Gap Crown Gate', x: 106, y: 4.5, z: 105.5, radius: 5.8 },
+];
+
+export interface ParkingBayDef {
+  id: string;
+  tier: 'Beginner' | 'Normal' | 'Advanced';
+  label: string;
+  x: number;
+  z: number;
+  targetYaw: number;
+  width: number;
+  length: number;
+  maxHeadingErrDeg: number;
+  maxCenterErr: number;
+}
+
+export const PRECISION_PARKING_BAYS: readonly ParkingBayDef[] = [
+  { id: 'park-1', tier: 'Beginner', label: 'Bay A · Wide Entry', x: 82, z: 46, targetYaw: Math.PI, width: 4.4, length: 6.6, maxHeadingErrDeg: 20, maxCenterErr: 1.55 },
+  { id: 'park-2', tier: 'Normal', label: 'Bay B · Angled Curb', x: 78, z: 62, targetYaw: Math.PI * 0.5, width: 3.8, length: 6.0, maxHeadingErrDeg: 14, maxCenterErr: 1.2 },
+  { id: 'park-3', tier: 'Advanced', label: 'Bay C · Tight Chicane Box', x: 78, z: 76, targetYaw: Math.PI, width: 3.4, length: 5.5, maxHeadingErrDeg: 10, maxCenterErr: 0.95 },
+];
+
+export const DISTRICT_HUB_MARKERS: {
+  id: string;
+  title: string;
+  subtitle: string;
+  x: number;
+  z: number;
+  color: string;
+  radius: number;
+}[] = [
+  {
+    id: 'forest-trail-hub',
+    title: 'FOREST TRAIL DISTRICT',
+    subtitle: 'Winding Pine Trail · Timber Brook Bridge & Overlook',
+    x: -104,
+    z: -84,
+    color: '#5E915E',
+    radius: 10,
+  },
+  {
+    id: 'amphibious-lagoon-hub',
+    title: 'AMPHIBIOUS LAGOON',
+    subtitle: 'Shallow Water Driving · Floating Buoys & Dock Run',
+    x: -36,
+    z: 118,
+    color: '#21968B',
+    radius: 12,
+  },
+  {
+    id: 'stunt-drift-hub',
+    title: 'STUNT & DRIFT ARENA',
+    subtitle: 'Drift Hairpins · Double-Jump Sky Gaps · Precision Bays',
+    x: 106,
+    z: 74,
+    color: '#EC6D2C',
+    radius: 12,
+  },
 ];
 
 export const ACHIEVEMENTS_LIST: AchievementDef[] = [
@@ -475,7 +607,72 @@ export const GARAGE_PAINT_PRESETS = [
     hex: '#D49A28',
     accent: '#2B2623',
     unlockAchievementId: 'complete-explorer',
+    unlockChallengeId: null as string | null,
     unlockLabel: 'Unlock: Complete all 9 other achievements',
+  },
+  {
+    id: 'lagoon-aqua',
+    name: 'Amphibious Aqua (Unlock)',
+    hex: '#19A7A0',
+    accent: '#FFF9F0',
+    unlockAchievementId: null as string | null,
+    unlockChallengeId: 'lagoon-run',
+    unlockLabel: 'Unlock: Clear Lagoon Run amphibious course',
+  },
+  {
+    id: 'apex-violet',
+    name: 'Apex Drift Purple (Unlock)',
+    hex: '#7246A6',
+    accent: '#FFD54F',
+    unlockAchievementId: null as string | null,
+    unlockChallengeId: 'drift-master',
+    unlockLabel: 'Unlock: Beat Drift Master 1,200 pt circuit',
+  },
+  {
+    id: 'skyline-blaze',
+    name: 'Skyline Stunt Chrome (Unlock)',
+    hex: '#EA5B2D',
+    accent: '#92E9FF',
+    unlockAchievementId: null as string | null,
+    unlockChallengeId: 'stunt-master',
+    unlockLabel: 'Unlock: Clear Stunt Master Arena',
+  },
+];
+
+export const GARAGE_RIM_OPTIONS: {
+  id: VehicleRimStyle;
+  label: string;
+  desc: string;
+  unlockChallengeId: string | null;
+  unlockLabel: string;
+}[] = [
+  {
+    id: 'classic-5spoke',
+    label: 'Classic 5-Spoke Alloy',
+    desc: 'Machined satin alloy 5-spoke wheels with painted brake calipers',
+    unlockChallengeId: null,
+    unlockLabel: 'Unlocked by default',
+  },
+  {
+    id: 'offroad-beadlock',
+    label: 'Expedition Beadlock',
+    desc: 'Heavy-duty bolted beadlock ring engineered for trails and shallows',
+    unlockChallengeId: null,
+    unlockLabel: 'Unlocked by default',
+  },
+  {
+    id: 'aero-mesh',
+    label: 'Apex Drift Mesh',
+    desc: 'Lightweight 10-spoke cross-lace drift rims (clear Drift Master to unlock)',
+    unlockChallengeId: 'drift-master',
+    unlockLabel: 'Unlock: Clear Drift Master circuit',
+  },
+  {
+    id: 'turbo-fan',
+    label: 'Aero Turbo-Fan',
+    desc: 'Vented competition turbine dish rims (clear Stunt Master or Lagoon Run)',
+    unlockChallengeId: 'stunt-master',
+    unlockLabel: 'Unlock: Clear Stunt Master Arena',
   },
 ];
 
@@ -483,12 +680,51 @@ export const GARAGE_ACCESSORY_OPTIONS: {
   id: VehicleAccessoryType;
   label: string;
   desc: string;
+  unlockChallengeId: string | null;
+  unlockLabel: string;
 }[] = [
-  { id: 'spare-tire', label: 'Roof Spare Wheel', desc: 'Classic expedition wheel mounted over the rear deck' },
-  { id: 'roof-lights', label: 'Rally Light Bar', desc: 'Quad roof-mounted spotlights for night & fog visibility' },
-  { id: 'cargo-box', label: 'Delivery Crate Pack', desc: 'Strapped expedition cargo crate for courier runs' },
-  { id: 'spoiler', label: 'Circuit Rear Wing', desc: 'Twin-strut aerodynamic wing for The Paddock loop' },
-  { id: 'none', label: 'Clean Roof', desc: 'Streamlined factory roof with zero attachments' },
+  {
+    id: 'spare-tire',
+    label: 'Roof Spare Wheel',
+    desc: 'Classic expedition wheel mounted over the rear deck',
+    unlockChallengeId: null,
+    unlockLabel: 'Unlocked by default',
+  },
+  {
+    id: 'roof-lights',
+    label: 'Rally Light Bar',
+    desc: 'Quad roof-mounted spotlights for night & fog visibility',
+    unlockChallengeId: null,
+    unlockLabel: 'Unlocked by default',
+  },
+  {
+    id: 'cargo-box',
+    label: 'Delivery Crate Pack',
+    desc: 'Strapped expedition cargo crate for courier runs',
+    unlockChallengeId: null,
+    unlockLabel: 'Unlocked by default',
+  },
+  {
+    id: 'spoiler',
+    label: 'Circuit Rear Wing',
+    desc: 'Twin-strut aerodynamic wing for The Paddock loop',
+    unlockChallengeId: null,
+    unlockLabel: 'Unlocked by default',
+  },
+  {
+    id: 'trail-expedition-rack',
+    label: 'Trail Expedition Rack',
+    desc: 'Roof cargo basket, twin recovery traction boards & trail beacon (clear Forest Trail)',
+    unlockChallengeId: 'forest-trail',
+    unlockLabel: 'Unlock: Complete Forest Trail Expedition',
+  },
+  {
+    id: 'none',
+    label: 'Clean Roof',
+    desc: 'Streamlined factory roof with zero attachments',
+    unlockChallengeId: null,
+    unlockLabel: 'Unlocked by default',
+  },
 ];
 
 export const GARAGE_HEADLIGHT_OPTIONS: {
@@ -550,4 +786,227 @@ export const NAVIGATION_ROUTES = [
   { path: '/guide', label: 'How to Play', group: 'Guide' },
   { path: '/behind-the-scenes', label: 'Behind the Scenes', group: 'Guide' },
   { path: '/contact', label: 'Contact', group: 'Community' },
+];
+
+export const MISSION_CATALOG: MissionCatalogItem[] = [
+  // EXPLORATION
+  {
+    id: 'tour',
+    title: 'Guided Portfolio Tour',
+    category: 'EXPLORATION',
+    difficulty: 'Beginner',
+    objective: 'Follow waypoint guidance across 5 signature destinations in Sanjaya’s World.',
+    startLocationLabel: 'Starting Plaza',
+    startPoint: { x: 0, z: 10 },
+    startYaw: 0.68,
+    controlsHint: 'W/S Drive · A/D Steer · Enter Open Destination',
+    rewardSummary: 'Full Island Tour Completion',
+    mode: 'tour',
+  },
+  {
+    id: 'treasure',
+    title: '4-Relic Treasure Hunt',
+    category: 'EXPLORATION',
+    difficulty: 'Beginner',
+    objective: 'Locate and open all 4 expedition chests scattered from Studio to South Cove.',
+    startLocationLabel: 'The Studio',
+    startPoint: { x: -36, z: -26 },
+    startYaw: 0.58,
+    controlsHint: 'WASD Explore · Space Jump over ledges',
+    rewardSummary: 'Studio Explorer Completion',
+    mode: 'challenge',
+    challengeId: 'treasure',
+  },
+  {
+    id: 'forest-trail',
+    title: 'Forest Trail Expedition',
+    category: 'EXPLORATION',
+    difficulty: 'Normal',
+    objective: 'Drive the winding NW woodland loop across the timber stream bridge to the Pine Overlook.',
+    startLocationLabel: 'Forest Trailhead',
+    startPoint: { x: -56, z: -52 },
+    startYaw: 0.785,
+    controlsHint: 'WASD Trail Drive · Space Double-Jump Logs · F Recover',
+    rewardSummary: 'Trail Expedition Rack & Woodland Time Record',
+    mode: 'challenge',
+    challengeId: 'forest-trail',
+    personalBestUnit: 'seconds',
+  },
+  // RACING
+  {
+    id: 'race',
+    title: 'Paddock Circuit Time Attack',
+    category: 'RACING',
+    difficulty: 'Normal',
+    objective: 'Launch on 3-2-1-GO and clear all 4 oval sectors cleanly to post a verified PB lap.',
+    startLocationLabel: 'The Paddock Start Grid',
+    startPoint: { x: -66, z: 18 },
+    startYaw: 0,
+    controlsHint: 'W/Shift Accelerate · X Corner Drift · Beat Ghost',
+    rewardSummary: 'RACE CHAMPION (+50 pts) & Midnight Circuit Skin',
+    mode: 'race',
+    personalBestUnit: 'seconds',
+  },
+  {
+    id: 'timetrial',
+    title: '5-Gate Island Time Trial',
+    category: 'RACING',
+    difficulty: 'Pro',
+    objective: 'Clear Ring Viaduct, Emerald Bridge, Workshop Straight & Signal Blvd within 45s.',
+    startLocationLabel: 'Project Pavilion',
+    startPoint: { x: 32, z: -36 },
+    startYaw: 2.89,
+    controlsHint: 'Shift Boost · X Tight Hairpin Drift · <45s Limit',
+    rewardSummary: 'Pavilion Sprint Completion',
+    mode: 'challenge',
+    challengeId: 'timetrial',
+  },
+  {
+    id: 'drift-master',
+    title: 'Drift Master Circuit',
+    category: 'RACING',
+    difficulty: 'Normal',
+    objective: 'Chain sustained drifts through the 4 Arena hairpins and reach 1,200+ Drift Score.',
+    startLocationLabel: 'Stunt & Drift Arena North',
+    startPoint: { x: 96, z: 42 },
+    startYaw: Math.PI,
+    controlsHint: 'X Handbrake Drift + A/D Countersteer · Release Smoothly',
+    rewardSummary: 'Apex Drift Mesh Rims & Purple Paint',
+    mode: 'challenge',
+    challengeId: 'drift-master',
+    personalBestUnit: 'score',
+  },
+  // STUNTS
+  {
+    id: 'stunt-master',
+    title: 'Stunt Master Ramp Showdown',
+    category: 'STUNTS',
+    difficulty: 'Pro',
+    objective: 'Hit 3 launch & kicker gates cleanly with airborne combos to clear 800+ Stunt Points.',
+    startLocationLabel: 'Stunt Arena Ramp Pad',
+    startPoint: { x: 96, z: 56 },
+    startYaw: Math.PI,
+    controlsHint: 'Shift Boost onto Ramps · Space 2x Jump · A/D/W/S Air Pitch',
+    rewardSummary: 'Aero Turbo-Fan Rims & Skyline Chrome Paint',
+    mode: 'challenge',
+    challengeId: 'stunt-master',
+    personalBestUnit: 'score',
+  },
+  {
+    id: 'double-jump-trial',
+    title: 'Double-Jump Sky Trial',
+    category: 'STUNTS',
+    difficulty: 'Pro',
+    objective: 'Launch off the takeoff ramp and fire your mid-air 2nd jump to reach both Sky Decks.',
+    startLocationLabel: 'Sky Ramp Approach',
+    startPoint: { x: 106, z: 82 },
+    startYaw: Math.PI,
+    controlsHint: '1st Space on Lip -> Peak -> 2nd Space Mid-Air!',
+    rewardSummary: 'Sky Trial Time Record & Mastery',
+    mode: 'challenge',
+    challengeId: 'double-jump-trial',
+    personalBestUnit: 'seconds',
+  },
+  {
+    id: 'precision-parking',
+    title: 'Precision Parking Test',
+    category: 'STUNTS',
+    difficulty: 'Normal',
+    objective: 'Align inside Bay A, Bay B, and tight Bay C under 3 km/h within heading tolerance.',
+    startLocationLabel: 'Arena Parking West Lane',
+    startPoint: { x: 82, z: 36 },
+    startYaw: Math.PI,
+    controlsHint: 'S/B Brake Slow · Align Heading Inside Lines · Hold 0.8s',
+    rewardSummary: 'Precision Driver Record',
+    mode: 'challenge',
+    challengeId: 'precision-parking',
+    personalBestUnit: 'score',
+  },
+  // WATER
+  {
+    id: 'lagoon-run',
+    title: 'Lagoon Run Amphibious Trial',
+    category: 'WATER',
+    difficulty: 'Normal',
+    objective: 'Splash into the shallow lagoon, weave past rocks & buoys through 5 gates, exit onto the dock.',
+    startLocationLabel: 'Amphibious Lagoon North Bank',
+    startPoint: { x: -34, z: 84 },
+    startYaw: Math.PI,
+    controlsHint: 'W Steady Throttle in Water · Avoid Red Buoys & Rocks',
+    rewardSummary: 'Amphibious Aqua Skin & Water Time PB',
+    mode: 'challenge',
+    challengeId: 'lagoon-run',
+    personalBestUnit: 'seconds',
+  },
+  // TECHNOLOGY
+  {
+    id: 'delivery',
+    title: '3-Stop Express Parcel Run',
+    category: 'TECHNOLOGY',
+    difficulty: 'Normal',
+    objective: 'Deliver courier packages sequentially to The Studio, The Workshop, and Signal House.',
+    startLocationLabel: 'Delivery Depot',
+    startPoint: { x: -38, z: 42 },
+    startYaw: -0.03,
+    controlsHint: 'Shift Boost · Follow Emerald Beacons',
+    rewardSummary: 'DELIVERY EXPERT (+50 pts) & Courier Skin',
+    mode: 'challenge',
+    challengeId: 'delivery',
+  },
+  {
+    id: 'sql',
+    title: 'Query Valley SQL Circuit',
+    category: 'TECHNOLOGY',
+    difficulty: 'Normal',
+    objective: 'Drive through SELECT → FROM → JOIN → WHERE gates in strict relational order.',
+    startLocationLabel: 'Query Valley Entrance',
+    startPoint: { x: 30, z: -52 },
+    startYaw: -0.46,
+    controlsHint: 'Follow Relational Clause Order · No Gate Skipping',
+    rewardSummary: 'DATABASE MASTER (+50 pts) & Query Cobalt Skin',
+    mode: 'challenge',
+    challengeId: 'sql',
+  },
+  {
+    id: 'rfid',
+    title: 'Signal Workshop RFID Gate',
+    category: 'TECHNOLOGY',
+    difficulty: 'Normal',
+    objective: 'Find the RC522 RFID Keycard, scan at the security barrier pad, and exit the compound.',
+    startLocationLabel: 'Signal Workshop Compound',
+    startPoint: { x: 40, z: 42 },
+    startYaw: -Math.PI * 0.5,
+    controlsHint: 'Drive onto Keycard -> Scan at Barrier -> Clear Gate',
+    rewardSummary: 'SECURITY EXPERT (+50 pts) & Signal Crimson Skin',
+    mode: 'challenge',
+    challengeId: 'rfid',
+  },
+  {
+    id: 'bughunt',
+    title: 'Workshop Bug Hunt',
+    category: 'TECHNOLOGY',
+    difficulty: 'Beginner',
+    objective: 'Locate and squash all 3 glitch bugs crawling around The Workshop lab yard.',
+    startLocationLabel: 'The Workshop',
+    startPoint: { x: 64, z: 2 },
+    startYaw: -1.03,
+    controlsHint: 'Look for Red Pulsing Glitch Cubes around Lab',
+    rewardSummary: 'Workshop Lab Clearance',
+    mode: 'challenge',
+    challengeId: 'bughunt',
+  },
+  {
+    id: 'memory',
+    title: 'Summit Illuminated Memory',
+    category: 'TECHNOLOGY',
+    difficulty: 'Normal',
+    objective: 'Watch the 4-pad light sequence at Lookout Hill and drive across them in matching order.',
+    startLocationLabel: 'Lookout Hill Summit',
+    startPoint: { x: 0, z: -58 },
+    startYaw: 0,
+    controlsHint: 'Memorize Flash Sequence · Drive Over Matching Pads',
+    rewardSummary: 'Lookout Summit Mastery',
+    mode: 'challenge',
+    challengeId: 'memory',
+  },
 ];

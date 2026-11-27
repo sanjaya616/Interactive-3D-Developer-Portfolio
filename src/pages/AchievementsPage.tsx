@@ -27,6 +27,7 @@ export const AchievementsPage: React.FC = () => {
     collectedSecrets,
     discoveredSecrets,
     completedChallenges,
+    challengeBests,
     bestLapSeconds,
     distanceDrivenMeters,
   } = useAppState();
@@ -164,6 +165,51 @@ export const AchievementsPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Personal Driving, Stunt & District Records */}
+      <section className="mb-8">
+        <div className="text-xs font-extrabold tracking-wider text-[#21968B] mb-2">
+          PERSONAL CHALLENGE &amp; STUNT RECORDS
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="ui-card-sand p-3.5">
+            <div className="text-[10px] font-extrabold text-[#61564E]">PADDOCK LAP PB</div>
+            <div className="text-lg font-extrabold tabular-nums text-[#26211E] mt-0.5">
+              {bestLapSeconds !== null ? `${bestLapSeconds.toFixed(2)}s` : '—'}
+            </div>
+          </div>
+          <div className="ui-card-sand p-3.5">
+            <div className="text-[10px] font-extrabold text-[#61564E]">BEST DRIFT</div>
+            <div className="text-lg font-extrabold tabular-nums text-[#EC6D2C] mt-0.5">
+              {challengeBests.bestDriftScore > 0 ? `${challengeBests.bestDriftScore.toLocaleString()} pts` : '—'}
+            </div>
+          </div>
+          <div className="ui-card-sand p-3.5">
+            <div className="text-[10px] font-extrabold text-[#61564E]">BEST STUNT</div>
+            <div className="text-lg font-extrabold tabular-nums text-[#E65448] mt-0.5">
+              {challengeBests.bestStuntScore > 0 ? `${challengeBests.bestStuntScore.toLocaleString()} pts` : '—'}
+            </div>
+          </div>
+          <div className="ui-card-sand p-3.5">
+            <div className="text-[10px] font-extrabold text-[#61564E]">LAGOON RUN</div>
+            <div className="text-lg font-extrabold tabular-nums text-[#21968B] mt-0.5">
+              {challengeBests.bestLagoonRunSeconds !== null ? `${challengeBests.bestLagoonRunSeconds.toFixed(2)}s` : '—'}
+            </div>
+          </div>
+          <div className="ui-card-sand p-3.5">
+            <div className="text-[10px] font-extrabold text-[#61564E]">SKY TRIAL</div>
+            <div className="text-lg font-extrabold tabular-nums text-[#CC5318] mt-0.5">
+              {challengeBests.bestDoubleJumpSeconds !== null ? `${challengeBests.bestDoubleJumpSeconds.toFixed(2)}s` : '—'}
+            </div>
+          </div>
+          <div className="ui-card-sand p-3.5">
+            <div className="text-[10px] font-extrabold text-[#61564E]">FOREST TRAIL</div>
+            <div className="text-lg font-extrabold tabular-nums text-[#5E915E] mt-0.5">
+              {challengeBests.bestForestTrailSeconds !== null ? `${challengeBests.bestForestTrailSeconds.toFixed(2)}s` : '—'}
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* Milestone Rewards */}
       <section className="mb-10">

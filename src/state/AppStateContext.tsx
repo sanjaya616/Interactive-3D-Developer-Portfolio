@@ -10,7 +10,9 @@ import React, {
 import {
   ACHIEVEMENTS_LIST,
   CORE_REQUIRED_ACHIEVEMENT_IDS,
+  GARAGE_ACCESSORY_OPTIONS,
   GARAGE_PAINT_PRESETS,
+  GARAGE_RIM_OPTIONS,
   PORTFOLIO_PROJECTS,
   WORLD_COLLECTIBLES,
   WORLD_LANDMARKS,
@@ -39,6 +41,7 @@ import type {
   AchievementDef,
   AuthUserSummary,
   CameraMode,
+  ChallengeBests,
   GamePhase,
   GameSettings,
   GhostSample,
@@ -69,6 +72,8 @@ interface AppStateContextValue {
   vehicleConfig: VehicleConfig;
   updateVehicleConfig: (partial: Partial<VehicleConfig>) => void;
   unlockedSkins: string[];
+  unlockedRims: string[];
+  unlockedAccessories: string[];
   discoveredLandmarks: string[];
   markLandmarkDiscovered: (id: string) => void;
   openedProjects: string[];
@@ -83,6 +88,8 @@ interface AppStateContextValue {
   markSecretDiscovered: (id: string) => void;
   completedChallenges: string[];
   markChallengeCompleted: (id: string) => void;
+  challengeBests: ChallengeBests;
+  recordChallengeMetric: (challengeId: string, metricValue: number, isTimeSeconds?: boolean) => void;
   unlockedAchievements: string[];
   unlockAchievement: (id: string) => void;
   recentAchievement: AchievementDef | null;
@@ -287,6 +294,7 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     saveState.collectedIds,
     saveState.discoveredSecrets,
     saveState.completedChallenges,
+    saveState.challengeBests,
     saveState.unlockedAchievements,
     saveState.bestLapSeconds,
     saveState.lastLapSeconds,
@@ -546,6 +554,47 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     [commitSave],
   );
 
+  const recordChallengeMetric = useCallback(
+    (challengeId: string, metricValue: number, isTimeSeconds = false) => {
+      if (!Number.isFinite(metricValue) || metricValue <= 0) return;
+      commitSave((prev) => {
+        const b = prev.challengeBests;
+        const nextBests = { ...b };
+        let changed = false;
+        if (challengeId === 'drift-master' && Math.round(metricValue) > b.bestDriftScore) {
+          nextBests.bestDriftScore = Math.round(metricValue);
+          changed = true;
+        } else if (challengeId === 'stunt-master' && Math.round(metricValue) > b.bestStuntScore) {
+          nextBests.bestStuntScore = Math.round(metricValue);
+          changed = true;
+        } else if (challengeId === 'precision-parking' && Math.round(metricValue) > b.bestParkingScore) {
+          nextBests.bestParkingScore = Math.round(metricValue);
+          changed = true;
+        } else if (challengeId === 'lagoon-run' && isTimeSeconds) {
+          const sec = Number(metricValue.toFixed(2));
+          if (b.bestLagoonRunSeconds === null || sec < b.bestLagoonRunSeconds) {
+            nextBests.bestLagoonRunSeconds = sec;
+            changed = true;
+          }
+        } else if (challengeId === 'double-jump-trial' && isTimeSeconds) {
+          const sec = Number(metricValue.toFixed(2));
+          if (b.bestDoubleJumpSeconds === null || sec < b.bestDoubleJumpSeconds) {
+            nextBests.bestDoubleJumpSeconds = sec;
+            changed = true;
+          }
+        } else if (challengeId === 'forest-trail' && isTimeSeconds) {
+          const sec = Number(metricValue.toFixed(2));
+          if (b.bestForestTrailSeconds === null || sec < b.bestForestTrailSeconds) {
+            nextBests.bestForestTrailSeconds = sec;
+            changed = true;
+          }
+        }
+        return changed ? { ...prev, challengeBests: nextBests } : prev;
+      });
+    },
+    [commitSave],
+  );
+
   const addDistanceDriven = useCallback(
     (deltaMeters: number) => {
       const add = Math.round(deltaMeters);
@@ -679,10 +728,29 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const unlockedSkins = useMemo(
     () =>
-      GARAGE_PAINT_PRESETS.filter(
-        (p) => !p.unlockAchievementId || saveState.unlockedAchievements.includes(p.unlockAchievementId),
-      ).map((p) => p.id),
-    [saveState.unlockedAchievements],
+      GARAGE_PAINT_PRESETS.filter((p) => {
+        const hasAch = !p.unlockAchievementId || saveState.unlockedAchievements.includes(p.unlockAchievementId);
+        const challReq = (p as { unlockChallengeId?: string | null }).unlockChallengeId;
+        const hasChall = !challReq || saveState.completedChallenges.includes(challReq);
+        return hasAch && hasChall;
+      }).map((p) => p.id),
+    [saveState.unlockedAchievements, saveState.completedChallenges],
+  );
+
+  const unlockedRims = useMemo(
+    () =>
+      GARAGE_RIM_OPTIONS.filter(
+        (r) => !r.unlockChallengeId || saveState.completedChallenges.includes(r.unlockChallengeId),
+      ).map((r) => r.id),
+    [saveState.completedChallenges],
+  );
+
+  const unlockedAccessories = useMemo(
+    () =>
+      GARAGE_ACCESSORY_OPTIONS.filter(
+        (a) => !a.unlockChallengeId || saveState.completedChallenges.includes(a.unlockChallengeId),
+      ).map((a) => a.id),
+    [saveState.completedChallenges],
   );
 
   const collectedOrbs = useMemo(
@@ -722,6 +790,8 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         vehicleConfig: saveState.vehicle,
         updateVehicleConfig,
         unlockedSkins,
+        unlockedRims,
+        unlockedAccessories,
         discoveredLandmarks: saveState.visitedLocations,
         markLandmarkDiscovered,
         openedProjects: saveState.openedProjects,
@@ -736,6 +806,8 @@ export const AppStateProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         markSecretDiscovered,
         completedChallenges: saveState.completedChallenges,
         markChallengeCompleted,
+        challengeBests: saveState.challengeBests,
+        recordChallengeMetric,
         unlockedAchievements: saveState.unlockedAchievements,
         unlockAchievement,
         recentAchievement,

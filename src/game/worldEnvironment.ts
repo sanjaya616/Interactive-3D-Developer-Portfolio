@@ -1,12 +1,18 @@
 import * as THREE from 'three';
 import {
   BUG_HUNT_TARGETS,
+  DRIFT_CIRCUIT_CHECKPOINTS,
+  FOREST_TRAIL_GATES,
+  LAGOON_RUN_CHECKPOINTS,
+  LAGOON_RUN_OBSTACLES,
   MEMORY_PADS,
   PADDOCK_CHECKPOINTS,
   PORTFOLIO_PROJECTS,
+  PRECISION_PARKING_BAYS,
   SECRET_LOCATIONS,
   SKILL_CATEGORIES,
   SQL_CHALLENGE_GATES,
+  STUNT_AIR_CHECKPOINTS,
   TIME_TRIAL_CHECKPOINTS,
   TREASURE_CHESTS,
   WORLD_COLLECTIBLES,
@@ -18,8 +24,22 @@ import { computeBridgeSurfaceY, computeGroundHeight } from './physicsMath';
 import { createWorldProceduralTextures } from './proceduralTextures';
 import { buildBridgesAndRoadNetwork } from './bridgesAndRoads';
 import { createVegetationSystem } from './vegetationSystem';
+import { resolveWindProfile } from './vegetationPlacement';
 import { createWaterSystem } from './waterSystem';
 import { MOORED_BOAT_ANCHOR, WATER_BASE_Y } from './waterWaveMath';
+import {
+  WEST_RIDGE_TUNNEL_DEF,
+  isPointClearForProp,
+  validateWorldLayout,
+} from './worldLayout';
+
+export type StaticColliderKind =
+  | 'building'
+  | 'bridge-rail'
+  | 'ramp-rail'
+  | 'tunnel-wall'
+  | 'tree'
+  | 'prop';
 
 export interface StaticBoxColliderDef {
   x: number;
@@ -31,6 +51,7 @@ export interface StaticBoxColliderDef {
   ry?: number;
   ignoreCamera?: boolean;
   friction?: number;
+  kind?: StaticColliderKind;
 }
 
 export interface DynamicPropDef {
@@ -63,7 +84,11 @@ export interface WorldBuildResult {
   setSecurityGateOpen: (open: boolean) => void;
   setRfidCardCollected: (collected: boolean) => void;
   setDeliveryTarget: (landmarkId: string | null) => void;
-  setWaypointTarget: (landmarkId: string | null, colorHex?: string) => void;
+  setWaypointTarget: (
+    landmarkId: string | null,
+    colorHex?: string,
+    overridePos?: { x: number; z: number },
+  ) => void;
   triggerDiscoveryPulse: (x: number, z: number, colorHex?: string) => void;
   setSqlProgress: (nextGateIdx: number) => void;
   setPaddockCheckpoint: (nextIdx: number) => void;
@@ -71,6 +96,12 @@ export interface WorldBuildResult {
   setBugHuntState: (foundIds: string[]) => void;
   setMemoryPadHighlight: (padId: number | null) => void;
   setTreasureState: (foundIds: string[]) => void;
+  setLagoonRunProgress: (nextIdx: number | null) => void;
+  setDriftGateProgress: (nextIdx: number | null) => void;
+  setStuntAirProgress: (foundIds: string[]) => void;
+  setParkingBayProgress: (nextIdx: number | null, alignPct?: number) => void;
+  setForestTrailProgress: (nextIdx: number | null) => void;
+  setVehicleWake: (x: number, z: number, speedMs: number, inWater: boolean) => void;
   setPerformanceProfile: (
     quality: QualityLevel,
     reducedMotion: boolean,
@@ -104,7 +135,7 @@ function createSandTexture(): THREE.CanvasTexture {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(34, 34);
+  tex.repeat.set(44, 44);
   return tex;
 }
 
@@ -208,7 +239,7 @@ function createExtrudedProfile(
   return geo;
 }
 
-function createTunnelArchGeo(): THREE.ExtrudeGeometry {
+function createTunnelArchGeo(length = WEST_RIDGE_TUNNEL_DEF.length): THREE.ExtrudeGeometry {
   const shape = new THREE.Shape();
   shape.moveTo(-5.8, 0);
   shape.lineTo(-5.8, 2.7);
@@ -221,32 +252,18 @@ function createTunnelArchGeo(): THREE.ExtrudeGeometry {
   shape.closePath();
 
   const geo = new THREE.ExtrudeGeometry(shape, {
-    depth: 16,
+    depth: length,
     bevelEnabled: true,
     bevelThickness: 0.14,
     bevelSize: 0.12,
     bevelSegments: 2,
   });
-  geo.translate(0, 0, -8);
+  geo.translate(0, 0, -length / 2);
   return geo;
 }
 
 function isNearRoadOrBuilding(x: number, z: number): boolean {
-  if (Math.hypot(x, z) < 16) return true;
-  const r = Math.hypot(x, z);
-  if (Math.abs(r - 34) < 5.6) return true;
-  if (Math.abs(x) < 8 && z < -10 && z > -76) return true;
-  if (Math.abs(x) < 6 && z > 10 && z < 56) return true;
-  if (Math.abs(x - 40) < 7 && z >= -48 && z <= 12) return true;
-  if (Math.abs(x + 42) < 9.5 && z >= -36 && z <= 22) return true;
-  if (Math.hypot(x + 66, z - 18) < 22.5) return true;
-  if (x >= 14 && x <= 78 && z >= -33 && z <= -12) return true;
-  if (Math.hypot(x + 18, z - 66) < 14.5) return true;
-  if (Math.abs(z - 62) < 3.6 && x >= -33 && x <= -3) return true;
-  for (const lm of WORLD_LANDMARKS) {
-    if (Math.hypot(x - lm.position.x, z - lm.position.z) < 13.2) return true;
-  }
-  return false;
+  return !isPointClearForProp(x, z, 1.5);
 }
 
 export function buildWorldEnvironment(
@@ -264,6 +281,34 @@ export function buildWorldEnvironment(
   const indicatorDiamonds: { mesh: THREE.Mesh; baseY: number; phase: number }[] = [];
   const techSymbols: THREE.Mesh[] = [];
   const soaringBirds: { grp: THREE.Group; cx: number; cz: number; radius: number; speed: number; alt: number; phase: number }[] = [];
+  const windFlags: {
+    seg1: THREE.Mesh;
+    seg2: THREE.Mesh;
+    seg3: THREE.Mesh;
+    phase: number;
+  }[] = [];
+  const butterflies: {
+    grp: THREE.Group;
+    wL: THREE.Mesh;
+    wR: THREE.Mesh;
+    cx: number;
+    baseY: number;
+    cz: number;
+    radius: number;
+    speed: number;
+    phase: number;
+  }[] = [];
+  const swimmingFish: {
+    grp: THREE.Group;
+    tail: THREE.Mesh;
+    cx: number;
+    baseY: number;
+    cz: number;
+    rx: number;
+    rz: number;
+    speed: number;
+    phase: number;
+  }[] = [];
   let radarDish: THREE.Group | null = null;
   let lighthouseBeam: THREE.Group | null = null;
   let mooredBoat: THREE.Group | null = null;
@@ -292,8 +337,8 @@ export function buildWorldEnvironment(
   sun.shadow.mapSize.width = 2048;
   sun.shadow.mapSize.height = 2048;
   sun.shadow.camera.near = 12;
-  sun.shadow.camera.far = 215;
-  const d = 90;
+  sun.shadow.camera.far = 250;
+  const d = 128;
   sun.shadow.camera.left = -d;
   sun.shadow.camera.right = d;
   sun.shadow.camera.top = d;
@@ -308,18 +353,73 @@ export function buildWorldEnvironment(
 
   let currentWeather: WeatherMode = 'sunny';
   let currentWindMode: WindMode = 'auto';
+  const initialWind = resolveWindProfile(currentWeather, currentWindMode);
+  let windSpeed = initialWind.speedMultiplier;
+  let windGust = initialWind.gustStrength;
+
+  // Shared wind-fluttering cloth pennant builder (3 articulated cloth segments driven by wind profile)
+  const flagPoleGeo = new THREE.CylinderGeometry(0.04, 0.055, 1.55, 6);
+  const flagFinialGeo = new THREE.SphereGeometry(0.08, 8, 6);
+  const flagSeg1Geo = new THREE.PlaneGeometry(0.52, 0.62);
+  flagSeg1Geo.translate(0.26, 0, 0);
+  const flagSeg2Geo = new THREE.PlaneGeometry(0.48, 0.56);
+  flagSeg2Geo.translate(0.24, 0, 0);
+  const flagSeg3Geo = new THREE.PlaneGeometry(0.44, 0.44);
+  flagSeg3Geo.translate(0.22, 0, 0);
+  geometries.push(flagPoleGeo, flagFinialGeo, flagSeg1Geo, flagSeg2Geo, flagSeg3Geo);
+
+  const flagPoleMat = new THREE.MeshStandardMaterial({ color: 0x2f2926, roughness: 0.6 });
+  materials.push(flagPoleMat);
+
+  const createWindFlag = (
+    parent: THREE.Object3D,
+    x: number,
+    y: number,
+    z: number,
+    colorHex: string,
+    phase: number,
+    scale = 1,
+  ) => {
+    const fMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(colorHex),
+      emissive: new THREE.Color(colorHex),
+      emissiveIntensity: 0.12,
+      roughness: 0.72,
+      side: THREE.DoubleSide,
+    });
+    materials.push(fMat);
+    const holder = new THREE.Group();
+    holder.position.set(x, y, z);
+    holder.scale.setScalar(scale);
+    const pole = new THREE.Mesh(flagPoleGeo, flagPoleMat);
+    pole.position.y = 0.77;
+    const fin = new THREE.Mesh(flagFinialGeo, fMat);
+    fin.position.y = 1.58;
+    const seg1 = new THREE.Mesh(flagSeg1Geo, fMat);
+    seg1.position.set(0.03, 1.24, 0);
+    const seg2 = new THREE.Mesh(flagSeg2Geo, fMat);
+    seg2.position.set(0.51, 0, 0);
+    const seg3 = new THREE.Mesh(flagSeg3Geo, fMat);
+    seg3.position.set(0.47, 0, 0);
+    seg1.add(seg2);
+    seg2.add(seg3);
+    holder.add(pole, fin, seg1);
+    parent.add(holder);
+    windFlags.push({ seg1, seg2, seg3, phase });
+  };
 
   // 1. Sculpted 280x280 Terrain Mesh with vertex color biomes + subtle wind-ripple bump
   const sandTex = createSandTexture();
   sandTex.anisotropy = maxAnisotropy;
   textures.push(sandTex);
 
-  const terrainGeo = new THREE.PlaneGeometry(280, 280, 120, 120);
+  const terrainGeo = new THREE.PlaneGeometry(360, 360, 144, 144);
   terrainGeo.rotateX(-Math.PI / 2);
   const tPos = terrainGeo.attributes.position;
   const tCol = new Float32Array(tPos.count * 3);
   const sandTint = new THREE.Color('#FFF4DF');
   const grassTint = new THREE.Color('#97BF78');
+  const forestTint = new THREE.Color('#6C9F5E');
   const shoreTint = new THREE.Color('#DFBE90');
   const ridgeTint = new THREE.Color('#C9A57C');
   const tempCol = new THREE.Color();
@@ -333,7 +433,9 @@ export function buildWorldEnvironment(
     const radial = Math.hypot(x, z);
     if (y < -0.1) {
       tempCol.copy(shoreTint);
-    } else if (radial > 110) {
+    } else if (x < -58 && z < -46) {
+      tempCol.copy(grassTint).lerp(forestTint, 0.55);
+    } else if (radial > 142) {
       tempCol.copy(sandTint).lerp(ridgeTint, 0.65);
     } else if (y > 1.05 || (Math.sin(x * 0.075) * Math.cos(z * 0.075) > 0.25 && radial > 26)) {
       tempCol.copy(sandTint).lerp(grassTint, 0.62);
@@ -362,23 +464,22 @@ export function buildWorldEnvironment(
   terrainMesh.receiveShadow = true;
   scene.add(terrainMesh);
 
-  // Distant Low-Poly Horizon Mountain Silhouette Ring (depth & natural boundary)
-  const cliffGeo = new THREE.ConeGeometry(18, 26, 6);
+  // Distant Low-Poly Horizon Mountain Silhouette Ring (outside 184m playable valley)
+  const cliffGeo = new THREE.ConeGeometry(22, 30, 6);
   const cliffMat = new THREE.MeshStandardMaterial({ color: 0xbfa084, roughness: 0.95 });
   geometries.push(cliffGeo);
   materials.push(cliffMat);
-  const cliffCount = 34;
+  const cliffCount = 42;
   const cliffInst = new THREE.InstancedMesh(cliffGeo, cliffMat, cliffCount);
   const dummy = new THREE.Object3D();
-  const cColor = new THREE.Color();
   for (let i = 0; i < cliffCount; i++) {
     const a = (i / cliffCount) * Math.PI * 2;
-    const rad = 132 + (i % 3) * 11;
+    const rad = 184 + (i % 3) * 11;
     const cx = Math.cos(a) * rad;
     const cz = Math.sin(a) * rad;
-    dummy.position.set(cx, 7.5 + (i % 4) * 2.2, cz);
+    dummy.position.set(cx, 8.5 + (i % 4) * 2.4, cz);
     dummy.rotation.set(0, a + i * 0.4, 0);
-    dummy.scale.set(1.1 + (i % 3) * 0.35, 0.9 + (i % 4) * 0.28, 1.0 + (i % 2) * 0.4);
+    dummy.scale.set(1.15 + (i % 3) * 0.35, 0.95 + (i % 4) * 0.28, 1.05 + (i % 2) * 0.4);
     dummy.updateMatrix();
     cliffInst.setMatrixAt(i, dummy.matrix);
   }
@@ -495,6 +596,9 @@ export function buildWorldEnvironment(
   scene.add(mooredBoat);
   waterSystem.update(0, mooredBoat);
 
+  // Coastal Jetty Pier Flagpole atop free SE piling (57.18, -19.2)
+  createWindFlag(scene, 57.18, 0.72, -19.2, '#21968B', 1.4, 1.05);
+
   // Coastal Striped Lighthouse overlooking Lagoon (x: 73, z: -26)
   const lhBaseGeo = new THREE.CylinderGeometry(1.5, 2.2, 2.2, 12);
   const lhTierGeo = new THREE.CylinderGeometry(1.15, 1.5, 2.6, 12);
@@ -553,10 +657,13 @@ export function buildWorldEnvironment(
 
   lhGroup.add(lh1, lh2, lh3, lhGal, lhLamp, lhRoof, lhHalo, lighthouseBeam);
   scene.add(lhGroup);
-  staticColliders.push({ x: 73, y: lhGy + 3.5, z: -26, hx: 2.0, hy: 4.0, hz: 2.0 });
+  staticColliders.push({ x: 73, y: lhGy + 3.5, z: -26, hx: 2.0, hy: 4.0, hz: 2.0, kind: 'prop' });
 
-  // 5. Vaulted Arched West Ridge Tunnel at x = -42, z in [-12, 4]
+  // 5. Vaulted Arched West Ridge Tunnel aligned with the Paddock approach spoke
   const tunnelGroup = new THREE.Group();
+  tunnelGroup.position.set(WEST_RIDGE_TUNNEL_DEF.centerX, 0, WEST_RIDGE_TUNNEL_DEF.centerZ);
+  tunnelGroup.rotation.y = WEST_RIDGE_TUNNEL_DEF.yaw;
+
   const rockRidgeMat = new THREE.MeshStandardMaterial({ color: 0xb98a5e, roughness: 0.9 });
   const lampGlowMat = new THREE.MeshStandardMaterial({
     color: 0xffe4a0,
@@ -565,49 +672,69 @@ export function buildWorldEnvironment(
   });
   materials.push(rockRidgeMat, lampGlowMat);
 
-  const tunArchGeo = createTunnelArchGeo();
+  const tunArchGeo = createTunnelArchGeo(WEST_RIDGE_TUNNEL_DEF.length);
   const tunPortalRimGeo = new THREE.TorusGeometry(4.95, 0.42, 8, 18, Math.PI);
-  const tunMoundGeo = new THREE.DodecahedronGeometry(4.6, 1);
+  const tunMoundGeo = new THREE.DodecahedronGeometry(1.0, 1);
   const tunLampGeo = new THREE.SphereGeometry(0.28, 10, 8);
   geometries.push(tunArchGeo, tunPortalRimGeo, tunMoundGeo, tunLampGeo);
 
   const tunVault = new THREE.Mesh(tunArchGeo, stoneMat);
-  tunVault.position.set(-42, 0, -4);
   tunVault.castShadow = true;
   tunVault.receiveShadow = true;
   tunnelGroup.add(tunVault);
 
-  for (const pz of [-11.9, 3.9]) {
+  const portalOffsetZ = WEST_RIDGE_TUNNEL_DEF.halfLength - 0.1;
+  for (const pz of [-portalOffsetZ, portalOffsetZ]) {
     const portalRib = new THREE.Mesh(tunPortalRimGeo, terracottaMat);
-    portalRib.position.set(-42, 2.65, pz);
+    portalRib.position.set(0, 2.65, pz);
     portalRib.castShadow = true;
     tunnelGroup.add(portalRib);
   }
 
-  for (const [mx, my, mz, sx, sy, sz] of [
-    [-48.8, 2.8, -4, 1.25, 1.15, 1.7],
-    [-35.2, 2.8, -4, 1.25, 1.15, 1.7],
-    [-42, 6.2, -4, 1.45, 0.72, 1.55],
+  // Faceted rock crags seated flush on the outer stone vault (all >4.8m width, >7.35m crown)
+  for (const [mx, my, mz, sx, sy, sz, ry] of [
+    [-7.3, 2.1, -2.1, 2.35, 2.6, 3.2, 0.25],
+    [-7.3, 2.0, 2.1, 2.35, 2.5, 3.2, -0.35],
+    [-6.2, 5.1, 0, 1.4, 2.1, 4.3, 0.12],
+    [7.3, 2.1, -2.1, 2.35, 2.6, 3.2, -0.25],
+    [7.3, 2.0, 2.1, 2.35, 2.5, 3.2, 0.35],
+    [6.2, 5.1, 0, 1.4, 2.1, 4.3, -0.12],
+    [0, 8.75, -1.6, 3.5, 1.35, 3.3, 0.28],
+    [0, 8.75, 1.6, 3.5, 1.35, 3.3, -0.28],
   ]) {
     const mound = new THREE.Mesh(tunMoundGeo, rockRidgeMat);
     mound.position.set(mx, my, mz);
     mound.scale.set(sx, sy, sz);
+    mound.rotation.y = ry;
     mound.castShadow = true;
     mound.receiveShadow = true;
     tunnelGroup.add(mound);
   }
 
-  for (const lz of [-9, -4, 1]) {
+  for (const lz of [-3.4, 0, 3.4]) {
     const lamp = new THREE.Mesh(tunLampGeo, lampGlowMat);
-    lamp.position.set(-42, 6.6, lz);
+    lamp.position.set(0, 6.6, lz);
     tunnelGroup.add(lamp);
   }
   scene.add(tunnelGroup);
 
-  staticColliders.push(
-    { x: -46.8, y: 2.2, z: -4, hx: 1.2, hy: 2.5, hz: 8.2 },
-    { x: -37.2, y: 2.2, z: -4, hx: 1.2, hy: 2.5, hz: 8.2 },
-  );
+  const tunCos = Math.cos(WEST_RIDGE_TUNNEL_DEF.yaw);
+  const tunSin = Math.sin(WEST_RIDGE_TUNNEL_DEF.yaw);
+  const tunWallOffset = WEST_RIDGE_TUNNEL_DEF.innerHalfWidth + 0.85;
+  for (const side of [-1, 1]) {
+    const lx = side * tunWallOffset;
+    staticColliders.push({
+      x: WEST_RIDGE_TUNNEL_DEF.centerX + lx * tunCos,
+      y: 2.2,
+      z: WEST_RIDGE_TUNNEL_DEF.centerZ - lx * tunSin,
+      hx: 0.85,
+      hy: 2.5,
+      hz: WEST_RIDGE_TUNNEL_DEF.halfLength,
+      ry: WEST_RIDGE_TUNNEL_DEF.yaw,
+      ignoreCamera: true,
+      kind: 'tunnel-wall',
+    });
+  }
 
   // 6. Welcome Portal Arch at Starting Plaza
   const postGeo = new THREE.CylinderGeometry(0.32, 0.4, 5.4, 10);
@@ -649,8 +776,8 @@ export function buildWorldEnvironment(
   wBack.rotation.y = Math.PI;
   scene.add(leftPost, leftCap, rightPost, rightCap, topBeam, wFront, wBack);
   staticColliders.push(
-    { x: -4.8, y: 2.6, z: -12.8, hx: 0.5, hy: 2.6, hz: 0.5 },
-    { x: 4.8, y: 2.6, z: -12.8, hx: 0.5, hy: 2.6, hz: 0.5 },
+    { x: -4.8, y: 2.6, z: -12.8, hx: 0.5, hy: 2.6, hz: 0.5, kind: 'prop' },
+    { x: 4.8, y: 2.6, z: -12.8, hx: 0.5, hy: 2.6, hz: 0.5, kind: 'prop' },
   );
 
   // 7. Build All 9 Bespoke Architectural Landmarks
@@ -1032,6 +1159,8 @@ export function buildWorldEnvironment(
         tire.castShadow = true;
         grp.add(tire);
       }
+      createWindFlag(grp, -4.5, 4.78, 5.2, '#EC6D2C', 0.2, 1.05);
+      createWindFlag(grp, 4.5, 4.78, 5.2, '#E65448', 1.9, 1.05);
       grp.add(bay, roof, pitWin, gpL, gpR, banner);
     } else if (lm.id === 'delivery') {
       // Courier Warehouse + Sawtooth Loading Canopy + Sculpted Delivery Van
@@ -1185,6 +1314,8 @@ export function buildWorldEnvironment(
       hx: 3.6,
       hy: 2.5,
       hz: 2.9,
+      ry: yaw,
+      kind: 'building',
     });
 
     // Floating Destination Name Signboard
@@ -1269,7 +1400,7 @@ export function buildWorldEnvironment(
   // 10. Multi-Species Sculpted Instanced Vegetation & Coherent Shader Wind System
   const vegetationSystem = createVegetationSystem(scene, procTex, geometries, materials);
   for (const col of vegetationSystem.staticColliders) {
-    staticColliders.push(col);
+    staticColliders.push({ ...col, kind: 'tree' });
   }
 
   // 12. Instanced Sandstone Boulders & Shoreline Rocks
@@ -1288,6 +1419,7 @@ export function buildWorldEnvironment(
   const rockInst = new THREE.InstancedMesh(rockGeo, rockMat, rockCoords.length);
   rockInst.castShadow = true;
   rockInst.receiveShadow = true;
+  const rockColor = new THREE.Color();
   rockCoords.forEach((rc, i) => {
     const gy = computeGroundHeight(rc.x, rc.z);
     const sx = 0.8 + ((i * 19) % 10) * 0.12;
@@ -1297,8 +1429,8 @@ export function buildWorldEnvironment(
     dummy.scale.set(sx, sy, sx * 0.9);
     dummy.updateMatrix();
     rockInst.setMatrixAt(i, dummy.matrix);
-    cColor.set(i % 2 === 0 ? '#D4B08C' : '#BE956E');
-    rockInst.setColorAt(i, cColor);
+    rockColor.set(i % 2 === 0 ? '#D4B08C' : '#BE956E');
+    rockInst.setColorAt(i, rockColor);
   });
   rockInst.instanceMatrix.needsUpdate = true;
   if (rockInst.instanceColor) rockInst.instanceColor.needsUpdate = true;
@@ -1326,6 +1458,111 @@ export function buildWorldEnvironment(
     scene.add(bg);
     soaringBirds.push({ grp: bg, ...bd });
   }
+
+  // 13B. Living Meadow Butterflies & Shallow-Water Cove/Lagoon Fish
+  const butterflyGroup = new THREE.Group();
+  const bWingLGeo = new THREE.PlaneGeometry(0.18, 0.22);
+  bWingLGeo.rotateX(-Math.PI / 2);
+  bWingLGeo.translate(-0.09, 0, 0);
+  const bWingRGeo = new THREE.PlaneGeometry(0.18, 0.22);
+  bWingRGeo.rotateX(-Math.PI / 2);
+  bWingRGeo.translate(0.09, 0, 0);
+  geometries.push(bWingLGeo, bWingRGeo);
+
+  const bfMats = ['#F5A623', '#27C2B4', '#FFF2B2'].map((hex) => {
+    const m = new THREE.MeshBasicMaterial({ color: hex, side: THREE.DoubleSide });
+    materials.push(m);
+    return m;
+  });
+  const butterflySpots: [number, number][] = [
+    [-20, -18],
+    [-18, -16],
+    [19, -15],
+    [-19, -51],
+    [14, -56],
+    [-31, 63],
+    [52, 26],
+    [56, -10],
+    [-64, -56],
+    [-78, -68],
+    [-92, -74],
+    [-112, -88],
+    [-124, -72],
+    [34, -34],
+  ];
+  butterflySpots.forEach(([bx, bz], i) => {
+    const gy = computeGroundHeight(bx, bz);
+    const mat = bfMats[i % bfMats.length];
+    const bGrp = new THREE.Group();
+    const wL = new THREE.Mesh(bWingLGeo, mat);
+    const wR = new THREE.Mesh(bWingRGeo, mat);
+    bGrp.add(wL, wR);
+    bGrp.position.set(bx, gy + 1.35, bz);
+    butterflyGroup.add(bGrp);
+    butterflies.push({
+      grp: bGrp,
+      wL,
+      wR,
+      cx: bx,
+      baseY: gy + 1.35 + (i % 3) * 0.22,
+      cz: bz,
+      radius: 1.4 + (i % 3) * 0.45,
+      speed: 1.05 + (i % 4) * 0.22,
+      phase: i * 1.17,
+    });
+  });
+  scene.add(butterflyGroup);
+
+  const fishGroup = new THREE.Group();
+  const fishBodyGeo = new THREE.OctahedronGeometry(0.14, 0);
+  fishBodyGeo.scale(0.55, 0.72, 1.85);
+  const fishTailGeo = new THREE.ConeGeometry(0.1, 0.22, 4);
+  fishTailGeo.rotateX(-Math.PI / 2);
+  fishTailGeo.translate(0, 0, -0.14);
+  geometries.push(fishBodyGeo, fishTailGeo);
+
+  const fishMatCoral = new THREE.MeshBasicMaterial({ color: 0xff8a5b });
+  const fishMatTeal = new THREE.MeshBasicMaterial({ color: 0x3ed6c9 });
+  materials.push(fishMatCoral, fishMatTeal);
+
+  const fishPaths = [
+    // South Cove crystal shallows (orbit north and south of South Cove footbridge)
+    { cx: -18, cz: 60.5, rx: 3.1, rz: 1.9, speed: 0.78 },
+    { cx: -16, cz: 60.8, rx: 2.5, rz: 2.1, speed: -0.68 },
+    { cx: -21, cz: 71.2, rx: 3.2, rz: 2.0, speed: 0.64 },
+    { cx: -14, cz: 70.6, rx: 2.4, rz: 1.8, speed: -0.74 },
+    // Amphibious Lagoon wide shallow basin
+    { cx: -36, cz: 118, rx: 11.5, rz: 9.2, speed: 0.34 },
+    { cx: -36, cz: 118, rx: 13.8, rz: 11.0, speed: -0.29 },
+    { cx: -36, cz: 118, rx: 8.4, rz: 7.4, speed: 0.42 },
+    { cx: -31, cz: 114, rx: 5.2, rz: 4.1, speed: -0.52 },
+    { cx: -41, cz: 122, rx: 5.6, rz: 4.5, speed: 0.48 },
+    { cx: -36, cz: 109, rx: 4.4, rz: 3.2, speed: 0.56 },
+    { cx: -29, cz: 123, rx: 4.2, rz: 3.5, speed: -0.5 },
+    { cx: -43, cz: 113, rx: 4.0, rz: 3.4, speed: 0.54 },
+  ];
+  fishPaths.forEach((fp, i) => {
+    const mat = i % 2 === 0 ? fishMatCoral : fishMatTeal;
+    const fGrp = new THREE.Group();
+    const body = new THREE.Mesh(fishBodyGeo, mat);
+    const tail = new THREE.Mesh(fishTailGeo, mat);
+    tail.position.z = -0.22;
+    fGrp.add(body, tail);
+    fGrp.position.set(fp.cx, WATER_BASE_Y - 0.16, fp.cz);
+    fishGroup.add(fGrp);
+    swimmingFish.push({
+      grp: fGrp,
+      tail,
+      cx: fp.cx,
+      baseY: WATER_BASE_Y - 0.16 - (i % 2) * 0.04,
+      cz: fp.cz,
+      rx: fp.rx,
+      rz: fp.rz,
+      speed: fp.speed,
+      phase: i * 0.92,
+    });
+  });
+  scene.add(fishGroup);
 
   // 14. Collectibles (Orbs, Tokens, Fragments, Secret Relics)
   const orbCoreGeo = new THREE.SphereGeometry(0.55, 14, 12);
@@ -1574,6 +1811,173 @@ export function buildWorldEnvironment(
     scene.add(sr);
   });
 
+  // 14C. EXPANSION DISTRICT PROPS, BROOK, DOCK, BUOYS & CHALLENGE MARKERS
+  // Forest Trail Brook crystal water strip beneath Forest Brook Timber Bridge
+  const brookGeo = new THREE.PlaneGeometry(8.2, 24);
+  brookGeo.rotateX(-Math.PI / 2);
+  geometries.push(brookGeo);
+  const brookMesh = new THREE.Mesh(brookGeo, waterSystem.waterMat);
+  brookMesh.position.set(-104, 0.38, -84);
+  brookMesh.renderOrder = 1;
+  scene.add(brookMesh);
+
+  // District Welcome Boards
+  const districtSigns = [
+    { x: -58, z: -48, rotY: 2.3, title: 'FOREST TRAIL', sub: 'Brook Bridge & Woodland Loop', accent: '#4F8456' },
+    { x: -29, z: 88, rotY: 0, title: 'AMPHIBIOUS LAGOON', sub: 'Shallow Water Course & Exit Dock', accent: '#17948D' },
+    { x: 78, z: 42, rotY: -0.9, title: 'STUNT & DRIFT ARENA', sub: 'Ramps · Sky Decks · Precision Bays', accent: '#E65448' },
+  ];
+  const dPostGeo = new THREE.CylinderGeometry(0.14, 0.16, 3.6, 8);
+  const dBoardGeo = new THREE.BoxGeometry(5.6, 2.0, 0.18);
+  geometries.push(dPostGeo, dBoardGeo);
+  districtSigns.forEach((ds, idx) => {
+    const gy = computeGroundHeight(ds.x, ds.z);
+    const tex = createSignTexture(ds.title, ds.sub, ds.accent);
+    textures.push(tex);
+    const bMat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
+    materials.push(bMat);
+    const grp = new THREE.Group();
+    const p1 = new THREE.Mesh(dPostGeo, woodMat);
+    p1.position.set(-2.2, 1.8, 0);
+    const p2 = new THREE.Mesh(dPostGeo, woodMat);
+    p2.position.set(2.2, 1.8, 0);
+    const board = new THREE.Mesh(dBoardGeo, bMat);
+    board.position.set(0, 3.2, 0);
+    grp.add(p1, p2, board);
+    createWindFlag(grp, 2.2, 4.18, 0, ds.accent, idx * 1.15 + 0.7, 0.95);
+    grp.position.set(ds.x, gy, ds.z);
+    grp.rotation.y = ds.rotY;
+    scene.add(grp);
+    floatingSigns.push({ group: grp, baseY: gy, phase: idx * 0.8 });
+  });
+
+  // Amphibious Lagoon Wooden Exit Dock at (-36, 140.5)
+  const amphDockGeo = new THREE.BoxGeometry(5.2, 0.35, 6.4);
+  geometries.push(amphDockGeo);
+  const amphDock = new THREE.Mesh(amphDockGeo, woodMat);
+  amphDock.position.set(-36, -0.05, 141.2);
+  amphDock.rotation.x = -0.09;
+  amphDock.receiveShadow = true;
+  amphDock.castShadow = true;
+  scene.add(amphDock);
+
+  // Amphibious Lagoon Obstacles (striped buoys & mossy lagoon boulders)
+  const buoyGeo = new THREE.CylinderGeometry(0.42, 0.62, 1.45, 10);
+  const rockObsGeo = new THREE.DodecahedronGeometry(1.15, 0);
+  geometries.push(buoyGeo, rockObsGeo);
+  const buoyMat = new THREE.MeshStandardMaterial({ color: 0xe65448, roughness: 0.42 });
+  const lagoonRockMat = new THREE.MeshStandardMaterial({ color: 0x6f746c, roughness: 0.9 });
+  materials.push(buoyMat, lagoonRockMat);
+  LAGOON_RUN_OBSTACLES.forEach((ob) => {
+    const gy = computeGroundHeight(ob.x, ob.z);
+    const isBuoy = ob.kind === 'buoy';
+    const m = new THREE.Mesh(isBuoy ? buoyGeo : rockObsGeo, isBuoy ? buoyMat : lagoonRockMat);
+    m.position.set(ob.x, gy + (isBuoy ? 0.72 : 0.65), ob.z);
+    if (!isBuoy) {
+      m.scale.set(ob.radius * 0.72, 0.78, ob.radius * 0.72);
+    }
+    m.castShadow = true;
+    m.receiveShadow = true;
+    scene.add(m);
+  });
+
+  // Lagoon Run Checkpoints (glowing turquoise torus gates)
+  const lagoonRings: THREE.Mesh[] = [];
+  const lagoonGateGeo = new THREE.TorusGeometry(2.8, 0.2, 8, 22);
+  geometries.push(lagoonGateGeo);
+  const lagoonGateMat = new THREE.MeshStandardMaterial({
+    color: 0x17948d,
+    emissive: 0x27c2b4,
+    emissiveIntensity: 0.85,
+  });
+  materials.push(lagoonGateMat);
+  LAGOON_RUN_CHECKPOINTS.forEach((cp) => {
+    const gy = Math.max(-0.32, computeGroundHeight(cp.x, cp.z));
+    const m = new THREE.Mesh(lagoonGateGeo, lagoonGateMat);
+    m.position.set(cp.x, gy + 2.3, cp.z);
+    m.visible = false;
+    scene.add(m);
+    lagoonRings.push(m);
+  });
+
+  // Drift Master Circuit Gates
+  const driftGates: { ring: THREE.Mesh; pylon: THREE.Mesh; mat: THREE.MeshStandardMaterial }[] = [];
+  DRIFT_CIRCUIT_CHECKPOINTS.forEach((cp) => {
+    const gy = computeGroundHeight(cp.x, cp.z);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xec6d2c,
+      emissive: 0xec6d2c,
+      emissiveIntensity: 0.35,
+    });
+    materials.push(mat);
+    const ring = new THREE.Mesh(gateRingGeo, mat);
+    ring.position.set(cp.x, gy + 0.08, cp.z);
+    const pylon = new THREE.Mesh(pylonGeo, mat);
+    pylon.position.set(cp.x, gy + 1.4, cp.z);
+    ring.visible = false;
+    pylon.visible = false;
+    scene.add(ring, pylon);
+    driftGates.push({ ring, pylon, mat });
+  });
+
+  // Stunt Master Aerial Torus Gates
+  const stuntAirRings: { id: string; mesh: THREE.Mesh; mat: THREE.MeshStandardMaterial }[] = [];
+  const stuntRingGeo = new THREE.TorusGeometry(2.9, 0.22, 8, 22);
+  geometries.push(stuntRingGeo);
+  STUNT_AIR_CHECKPOINTS.forEach((cp) => {
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xffd54f,
+      emissive: 0xe65448,
+      emissiveIntensity: 0.85,
+    });
+    materials.push(mat);
+    const m = new THREE.Mesh(stuntRingGeo, mat);
+    m.position.set(cp.x, cp.y, cp.z);
+    m.visible = false;
+    scene.add(m);
+    stuntAirRings.push({ id: cp.id, mesh: m, mat });
+  });
+
+  // Precision Parking Floor Highlight Beacons
+  const parkingHighlights: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial }[] = [];
+  PRECISION_PARKING_BAYS.forEach((bay) => {
+    const bayGeo = new THREE.PlaneGeometry(bay.width * 0.92, bay.length * 0.92);
+    bayGeo.rotateX(-Math.PI / 2);
+    geometries.push(bayGeo);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffd54f,
+      transparent: true,
+      opacity: 0.35,
+      side: THREE.DoubleSide,
+    });
+    materials.push(mat);
+    const mesh = new THREE.Mesh(bayGeo, mat);
+    mesh.position.set(bay.x, 0.055, bay.z);
+    mesh.rotation.y = bay.targetYaw;
+    mesh.visible = false;
+    scene.add(mesh);
+    parkingHighlights.push({ mesh, mat });
+  });
+
+  // Forest Trail Gate Rings
+  const ftGates: THREE.Mesh[] = [];
+  const ftGateGeo = new THREE.TorusGeometry(2.5, 0.18, 8, 22);
+  geometries.push(ftGateGeo);
+  const ftGateMat = new THREE.MeshStandardMaterial({
+    color: 0x4f8456,
+    emissive: 0x7bc96f,
+    emissiveIntensity: 0.8,
+  });
+  materials.push(ftGateMat);
+  FOREST_TRAIL_GATES.forEach((fg) => {
+    const gy = computeBridgeSurfaceY(fg.x, fg.z) ?? computeGroundHeight(fg.x, fg.z);
+    const m = new THREE.Mesh(ftGateGeo, ftGateMat);
+    m.position.set(fg.x, gy + 2.2, fg.z);
+    m.visible = false;
+    scene.add(m);
+    ftGates.push(m);
+  });
+
   // 15. Dynamic Physics Crates & Traffic Cones
   const crateGeo = new THREE.BoxGeometry(1.1, 1.1, 1.1);
   const coneGeo = new THREE.ConeGeometry(0.42, 1.05, 8);
@@ -1582,15 +1986,18 @@ export function buildWorldEnvironment(
   const coneMat = new THREE.MeshStandardMaterial({ color: 0xe65448, roughness: 0.52 });
   materials.push(crateMat, coneMat);
 
+  const westPlazaGy = computeGroundHeight(-16.8, -4.2);
+  const eastPlazaGy = computeGroundHeight(16.2, -4.8);
+  const delYardGy = computeGroundHeight(-43.8, 44.6);
   const cratePositions = [
-    { x: -11, y: 0.55, z: -7 },
-    { x: -12.2, y: 0.55, z: -7 },
-    { x: -11.6, y: 1.7, z: -7 },
-    { x: 11, y: 0.55, z: -6 },
-    { x: 12.2, y: 0.55, z: -6 },
-    { x: 11.6, y: 1.7, z: -6 },
-    { x: -34, y: 0.55, z: 43 },
-    { x: -35.2, y: 0.55, z: 43 },
+    { x: -16.2, y: westPlazaGy + 0.55, z: -4.2 },
+    { x: -17.4, y: westPlazaGy + 0.55, z: -4.2 },
+    { x: -16.8, y: westPlazaGy + 1.68, z: -4.2 },
+    { x: 15.6, y: eastPlazaGy + 0.55, z: -4.8 },
+    { x: 16.8, y: eastPlazaGy + 0.55, z: -4.8 },
+    { x: 16.2, y: eastPlazaGy + 1.68, z: -4.8 },
+    { x: -43.2, y: delYardGy + 0.55, z: 44.6 },
+    { x: -44.4, y: delYardGy + 0.55, z: 44.6 },
   ];
   for (const cp of cratePositions) {
     const m = new THREE.Mesh(crateGeo, crateMat);
@@ -1608,6 +2015,13 @@ export function buildWorldEnvironment(
       hz: 0.55,
       mass: 2.2,
     });
+  }
+
+  if (import.meta.env.DEV) {
+    const audit = validateWorldLayout(cratePositions);
+    if (!audit.valid) {
+      console.warn('[WorldLayoutAudit] Layout clearance issues detected:', audit.issues);
+    }
   }
 
   const conePositions = [
@@ -1692,11 +2106,17 @@ export function buildWorldEnvironment(
     atmosphereSystem.applyWeatherMode(mode, immediate);
     waterSystem.applyWeather(mode);
     vegetationSystem.setWindProfile(mode, currentWindMode);
+    const resolved = resolveWindProfile(mode, currentWindMode);
+    windSpeed = resolved.speedMultiplier;
+    windGust = resolved.gustStrength;
   };
 
   const setWindMode = (mode: WindMode) => {
     currentWindMode = mode;
     vegetationSystem.setWindProfile(currentWeather, mode);
+    const resolved = resolveWindProfile(currentWeather, mode);
+    windSpeed = resolved.speedMultiplier;
+    windGust = resolved.gustStrength;
   };
 
   const setSecurityGateOpen = (open: boolean) => {
@@ -1723,8 +2143,19 @@ export function buildWorldEnvironment(
     deliveryBeacon.visible = true;
   };
 
-  const setWaypointTarget = (landmarkId: string | null, colorHex?: string) => {
+  const setWaypointTarget = (
+    landmarkId: string | null,
+    colorHex?: string,
+    overridePos?: { x: number; z: number },
+  ) => {
     if (!waypointBeacon || !waypointBeamMat) return;
+    if (overridePos) {
+      const gy = computeBridgeSurfaceY(overridePos.x, overridePos.z) ?? computeGroundHeight(overridePos.x, overridePos.z);
+      waypointBeamMat.color.set(colorHex || '#EC6D2C');
+      waypointBeacon.position.set(overridePos.x, gy, overridePos.z);
+      waypointBeacon.visible = true;
+      return;
+    }
     if (!landmarkId) {
       waypointBeacon.visible = false;
       return;
@@ -1814,6 +2245,66 @@ export function buildWorldEnvironment(
     });
   };
 
+  const setLagoonRunProgress = (nextIdx: number | null) => {
+    lagoonRings.forEach((ring, idx) => {
+      ring.visible = nextIdx !== null && idx === nextIdx;
+    });
+  };
+
+  const setDriftGateProgress = (nextIdx: number | null) => {
+    driftGates.forEach((dg, idx) => {
+      const visible = nextIdx !== null;
+      dg.ring.visible = visible;
+      dg.pylon.visible = visible;
+      if (nextIdx !== null) {
+        if (idx === nextIdx % driftGates.length) {
+          dg.mat.color.set('#FFD54F');
+          dg.mat.emissive.set('#EC6D2C');
+          dg.mat.emissiveIntensity = 1.1;
+        } else {
+          dg.mat.color.set('#3E7B9E');
+          dg.mat.emissive.set('#3E7B9E');
+          dg.mat.emissiveIntensity = 0.25;
+        }
+      }
+    });
+  };
+
+  const setStuntAirProgress = (foundIds: string[]) => {
+    stuntAirRings.forEach((sr) => {
+      const cleared = foundIds.includes(sr.id);
+      sr.mesh.visible = !cleared;
+    });
+  };
+
+  const setParkingBayProgress = (nextIdx: number | null, alignPct = 0) => {
+    parkingHighlights.forEach((ph, idx) => {
+      ph.mesh.visible = nextIdx !== null && idx === nextIdx;
+      if (ph.mesh.visible) {
+        if (alignPct >= 0.85) {
+          ph.mat.color.set('#4CAF50');
+          ph.mat.opacity = 0.72;
+        } else if (alignPct >= 0.35) {
+          ph.mat.color.set('#FFD54F');
+          ph.mat.opacity = 0.55;
+        } else {
+          ph.mat.color.set('#EC6D2C');
+          ph.mat.opacity = 0.38;
+        }
+      }
+    });
+  };
+
+  const setForestTrailProgress = (nextIdx: number | null) => {
+    ftGates.forEach((ring, idx) => {
+      ring.visible = nextIdx !== null && idx === nextIdx;
+    });
+  };
+
+  const setVehicleWake = (x: number, z: number, speedMs: number, inWater: boolean) => {
+    waterSystem.setVehicleWake(x, z, speedMs, inWater);
+  };
+
   let lowQualityProfile = false;
   let reducedMotionProfile = false;
 
@@ -1824,7 +2315,10 @@ export function buildWorldEnvironment(
   ) => {
     lowQualityProfile = quality === 'low';
     reducedMotionProfile = reducedMotion;
-    motes.visible = !lowQualityProfile && !reducedMotionProfile;
+    const hideLivingFX = lowQualityProfile || reducedMotionProfile;
+    motes.visible = !hideLivingFX;
+    butterflyGroup.visible = !hideLivingFX;
+    fishGroup.visible = !hideLivingFX;
     waterSystem.applyQuality(quality);
     vegetationSystem.setPerformanceProfile(quality, reducedMotion);
     atmosphereSystem.setQualityProfile(quality, reducedMotion, isSoftwareGl);
@@ -1871,6 +2365,47 @@ export function buildWorldEnvironment(
       bird.grp.rotation.y = -ang + Math.PI / 2;
     }
 
+    if (windSpeed > 0.01 && !reducedMotionProfile) {
+      const waveFreq = 3.2 + windSpeed * 2.1;
+      const amp = 0.14 + windSpeed * 0.12 + windGust * 0.18;
+      for (const wf of windFlags) {
+        const gustWave = Math.sin(motionTime * 1.15 + wf.phase) * windGust * 0.15;
+        wf.seg1.rotation.y = Math.sin(motionTime * waveFreq + wf.phase) * amp + gustWave;
+        wf.seg2.rotation.y = Math.sin(motionTime * waveFreq + wf.phase - 1.15) * (amp * 1.3);
+        wf.seg3.rotation.y = Math.sin(motionTime * waveFreq + wf.phase - 2.3) * (amp * 1.55);
+      }
+    }
+
+    if (butterflyGroup.visible) {
+      for (const bf of butterflies) {
+        const ang = motionTime * bf.speed + bf.phase;
+        const nx = bf.cx + Math.cos(ang) * bf.radius;
+        const nz = bf.cz + Math.sin(ang * 2) * (bf.radius * 0.55);
+        const ny = bf.baseY + Math.sin(motionTime * 3.1 + bf.phase) * 0.28;
+        bf.grp.position.set(nx, ny, nz);
+        bf.grp.rotation.y = -Math.atan2(
+          Math.cos(ang * 2) * bf.radius * 1.1,
+          -Math.sin(ang) * bf.radius,
+        );
+        const flap = Math.sin(motionTime * 15 + bf.phase) * 0.78;
+        bf.wL.rotation.z = flap;
+        bf.wR.rotation.z = -flap;
+      }
+    }
+
+    if (fishGroup.visible) {
+      for (const f of swimmingFish) {
+        const ang = motionTime * f.speed + f.phase;
+        const nx = f.cx + Math.cos(ang) * f.rx;
+        const nz = f.cz + Math.sin(ang) * f.rz;
+        const vx = -Math.sin(ang) * f.rx * f.speed;
+        const vz = Math.cos(ang) * f.rz * f.speed;
+        f.grp.position.set(nx, f.baseY + Math.sin(motionTime * 1.8 + f.phase) * 0.03, nz);
+        f.grp.rotation.y = Math.atan2(vx, vz);
+        f.tail.rotation.y = Math.sin(motionTime * 9.5 + f.phase) * 0.42;
+      }
+    }
+
     if (securityGateArm) {
       const targetAngle = securityGateOpen ? Math.PI / 2.2 : 0;
       securityGateArm.rotation.z = THREE.MathUtils.damp(
@@ -1911,6 +2446,24 @@ export function buildWorldEnvironment(
     for (const ring of ttRings) {
       if (ring.visible) {
         ring.rotation.y = motionTime * 1.8;
+      }
+    }
+
+    for (const ring of lagoonRings) {
+      if (ring.visible) {
+        ring.rotation.y = motionTime * 1.9;
+      }
+    }
+
+    for (const sr of stuntAirRings) {
+      if (sr.mesh.visible) {
+        sr.mesh.rotation.y = motionTime * 1.6;
+      }
+    }
+
+    for (const fg of ftGates) {
+      if (fg.visible) {
+        fg.rotation.y = motionTime * 1.5;
       }
     }
 
@@ -1972,6 +2525,12 @@ export function buildWorldEnvironment(
     setBugHuntState,
     setMemoryPadHighlight,
     setTreasureState,
+    setLagoonRunProgress,
+    setDriftGateProgress,
+    setStuntAirProgress,
+    setParkingBayProgress,
+    setForestTrailProgress,
+    setVehicleWake,
     setPerformanceProfile,
     setWindMode,
     updateEnvironment,

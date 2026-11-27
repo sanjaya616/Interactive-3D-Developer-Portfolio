@@ -1,12 +1,25 @@
 import * as THREE from 'three';
 import type { WeatherMode } from '../types/portfolio';
 import {
+  DOUBLE_JUMP_PLATFORMS,
+  PRECISION_PARKING_BAYS,
+  STUNT_ARENA_RAMPS,
+} from '../data/portfolioData';
+import {
+  FOREST_BROOK_BRIDGE,
   MAIN_LAGOON_BRIDGE,
   RING_LAGOON_VIADUCT,
   SOUTH_COVE_BRIDGE,
   computeBridgeSurfaceY,
   computeGroundHeight,
 } from './physicsMath';
+import {
+  DIRECTIONAL_SIGNS,
+  ROAD_JUNCTION_DISCS,
+  ROAD_SEGMENTS,
+  WEST_RIDGE_TUNNEL_DEF,
+  isPointClearForProp,
+} from './worldLayout';
 import type { ProceduralTextureSet } from './proceduralTextures';
 import type { StaticBoxColliderDef } from './worldEnvironment';
 
@@ -414,61 +427,74 @@ export function buildBridgesAndRoadNetwork(
   // =========================================================================
   // 2. TERRAIN-CONFORMING SPOKE ROADS, JUNCTION APRONS & TRAILS
   // =========================================================================
-  const asphaltSpokes: [number, number, number, number, number, boolean][] = [
-    // [x1, z1, x2, z2, width, addCurbs] — endpoints stop cleanly at plaza & landmark pad rims
-    [0, -13.4, 0, -37.2, 4.9, true],
-    [0, 13.4, 0, 41.2, 4.9, true],
-    [-9.5, -9.5, -32.2, -30.4, 4.8, true],
-    [-34, -2, -61.2, 15.4, 4.8, true],
-    [-34, 24, -37.0, 43.2, 4.8, true],
-    [33, 14, 59.0, 8.8, 4.8, true],
-    [28, 22, 41.4, 43.5, 4.8, true],
-    [40, -32.4, 37.3, -39.4, 4.9, true],
-    [39.8, -46.8, 48, -69.0, 4.8, true],
-    [31, 4, 40, -11.6, 4.9, true],
-  ];
+  const trailStakeGeo = new THREE.CylinderGeometry(0.08, 0.1, 0.55, 6);
+  geometries.push(trailStakeGeo);
 
-  for (const [x1, z1, x2, z2, width, addCurbs] of asphaltSpokes) {
-    const ribbonGeo = buildTerrainRibbonGeometry(x1, z1, x2, z2, width, 0.035, 7.6);
+  for (const seg of ROAD_SEGMENTS) {
+    if (seg.surface === 'ramp') continue;
+    const isGravel = seg.surface === 'gravel';
+    const ribbonGeo = buildTerrainRibbonGeometry(
+      seg.x1,
+      seg.z1,
+      seg.x2,
+      seg.z2,
+      seg.width,
+      isGravel ? 0.042 : 0.035,
+      isGravel ? 5.4 : 7.6,
+    );
     geometries.push(ribbonGeo);
-    const roadMesh = new THREE.Mesh(ribbonGeo, roadMat);
+    const roadMesh = new THREE.Mesh(ribbonGeo, isGravel ? gravelMat : roadMat);
     roadMesh.receiveShadow = true;
     scene.add(roadMesh);
 
-    if (addCurbs) {
-      const curbGeo = buildRoadEdgeCurbGeometry(x1, z1, x2, z2, width, 0.25, 0.085);
+    if (seg.addCurbs) {
+      const curbGeo = buildRoadEdgeCurbGeometry(
+        seg.x1,
+        seg.z1,
+        seg.x2,
+        seg.z2,
+        seg.width,
+        0.25,
+        0.085,
+      );
       geometries.push(curbGeo);
       const curbMesh = new THREE.Mesh(curbGeo, curbStoneMat);
       curbMesh.receiveShadow = true;
       scene.add(curbMesh);
+    }
+
+    if (seg.id.startsWith('trail-pine-')) {
+      const dx = seg.x2 - seg.x1;
+      const dz = seg.z2 - seg.z1;
+      const len = Math.hypot(dx, dz) || 1;
+      const nx = -dz / len;
+      const nz = dx / len;
+      const stake = new THREE.Mesh(trailStakeGeo, timberDarkMat);
+      const sx = (seg.x1 + seg.x2) * 0.5 + nx * 1.78;
+      const sz = (seg.z1 + seg.z2) * 0.5 + nz * 1.78;
+      stake.position.set(sx, computeGroundHeight(sx, sz) + 0.24, sz);
+      scene.add(stake);
     }
   }
 
   // Smooth intersection asphalt fillet discs at spoke-to-ring & hub junctions
   const junctionDiscGeo = new THREE.CylinderGeometry(3.2, 3.35, 0.06, 20);
   geometries.push(junctionDiscGeo);
-  const junctionCoords: [number, number, number][] = [
-    [0, -34, 1.05],
-    [0, 34, 1.0],
-    [-25, -23.5, 0.95],
-    [-34, -2, 0.95],
-    [-34, 24, 0.95],
-    [33, 14, 0.95],
-    [28, 22, 0.95],
-    [31, 4, 0.95],
-  ];
-  for (const [jx, jz, jScale] of junctionCoords) {
-    const gy = computeGroundHeight(jx, jz);
+  for (const jc of ROAD_JUNCTION_DISCS) {
+    const gy = computeGroundHeight(jc.x, jc.z);
     const jDisc = new THREE.Mesh(junctionDiscGeo, solidRoadMat);
-    jDisc.position.set(jx, gy + 0.015, jz);
-    jDisc.scale.set(jScale, 1, jScale);
+    jDisc.position.set(jc.x, gy + 0.015, jc.z);
+    jDisc.scale.set(jc.scale, 1, jc.scale);
     jDisc.receiveShadow = true;
     scene.add(jDisc);
   }
 
   // Lookout Hill Sloped Ramp Road + Side Curbs & Safety Guard Barriers
-  const hillRibbonGeo = buildTerrainRibbonGeometry(0, -36.5, 0, -64.5, 5.6, 0.045, 7.2);
-  const hillCurbGeo = buildRoadEdgeCurbGeometry(0, -36.5, 0, -64.5, 5.6, 0.3, 0.11);
+  const hillRampSeg = ROAD_SEGMENTS.find((s) => s.id === 'lookout-ramp');
+  const hillZ1 = hillRampSeg?.z1 ?? -36.5;
+  const hillZ2 = hillRampSeg?.z2 ?? -69.0;
+  const hillRibbonGeo = buildTerrainRibbonGeometry(0, hillZ1, 0, hillZ2, 5.6, 0.045, 7.2);
+  const hillCurbGeo = buildRoadEdgeCurbGeometry(0, hillZ1, 0, hillZ2, 5.6, 0.3, 0.11);
   geometries.push(hillRibbonGeo, hillCurbGeo);
   const hillRoad = new THREE.Mesh(hillRibbonGeo, roadMat);
   hillRoad.receiveShadow = true;
@@ -505,53 +531,8 @@ export function buildBridgesAndRoadNetwork(
       hz: 10.2,
       ignoreCamera: true,
       friction: 0.04,
+      kind: 'ramp-rail',
     });
-  }
-
-  // Hidden Pine Trail (Terrain-conforming gravel ribbon with timber trail stakes)
-  const hiddenTrailPoints: [number, number][] = [
-    [-34, -38],
-    [-28, -50],
-    [-22, -58],
-    [-13, -66],
-    [-6, -70],
-  ];
-  const trailStakeGeo = new THREE.CylinderGeometry(0.08, 0.1, 0.55, 6);
-  geometries.push(trailStakeGeo);
-  for (let i = 0; i < hiddenTrailPoints.length - 1; i++) {
-    const [x1, z1] = hiddenTrailPoints[i];
-    const [x2, z2] = hiddenTrailPoints[i + 1];
-    const trailGeo = buildTerrainRibbonGeometry(x1, z1, x2, z2, 3.15, 0.045, 5.5);
-    geometries.push(trailGeo);
-    const trailMesh = new THREE.Mesh(trailGeo, gravelMat);
-    trailMesh.receiveShadow = true;
-    scene.add(trailMesh);
-
-    const dx = x2 - x1;
-    const dz = z2 - z1;
-    const len = Math.hypot(dx, dz) || 1;
-    const nx = -dz / len;
-    const nz = dx / len;
-    const stake = new THREE.Mesh(trailStakeGeo, timberDarkMat);
-    const sx = (x1 + x2) * 0.5 + nx * 1.75;
-    const sz = (z1 + z2) * 0.5 + nz * 1.75;
-    stake.position.set(sx, computeGroundHeight(sx, sz) + 0.24, sz);
-    scene.add(stake);
-  }
-
-  // South Cove Gravel Trails connecting Delivery Depot (-38, 48) <-> Bridge <-> Signal House (0, 46)
-  const southCoveTrailSegs: [number, number, number, number][] = [
-    [-38, 48, -34, 56],
-    [-34, 56, -29.4, 62],
-    [-6.6, 62, -3, 55],
-    [-3, 55, 0, 46],
-  ];
-  for (const [x1, z1, x2, z2] of southCoveTrailSegs) {
-    const covGeo = buildTerrainRibbonGeometry(x1, z1, x2, z2, 3.25, 0.04, 5.2);
-    geometries.push(covGeo);
-    const covMesh = new THREE.Mesh(covGeo, gravelMat);
-    covMesh.receiveShadow = true;
-    scene.add(covMesh);
   }
 
   // Pavement Directional Arrows along key roads (strictly on dry ground asphalt)
@@ -566,7 +547,11 @@ export function buildBridgesAndRoadNetwork(
     { x: 40, z: -35.5, yaw: Math.PI }, // Main Bridge North entry south-bound
     { x: 13.8, z: -31.1, yaw: -1.2 }, // NW Ring Viaduct North-West approach
     { x: 32.1, z: -10.8, yaw: 0.35 }, // NW Ring Viaduct South-East approach
-    { x: -45, z: 5, yaw: 0.98 }, // Toward The Paddock
+    {
+      x: -52.5,
+      z: 9.55,
+      yaw: Math.atan2(-WEST_RIDGE_TUNNEL_DEF.dirX, -WEST_RIDGE_TUNNEL_DEF.dirZ),
+    }, // Along Paddock Pit Lane past West Ridge Tunnel
   ];
   for (const arr of roadArrows) {
     const gy = computeGroundHeight(arr.x, arr.z);
@@ -854,6 +839,18 @@ export function buildBridgesAndRoadNetwork(
       1.05,
     );
   }
+  // Flush stone abutment transition aprons at Main Bridge ends so tires glide seamlessly
+  const mainApronGeo = new THREE.BoxGeometry(MAIN_LAGOON_BRIDGE.deckHalfWidth * 2, 0.08, 1.15);
+  geometries.push(mainApronGeo);
+  for (const az of [
+    MAIN_LAGOON_BRIDGE.zCenter - MAIN_LAGOON_BRIDGE.halfLength,
+    MAIN_LAGOON_BRIDGE.zCenter + MAIN_LAGOON_BRIDGE.halfLength,
+  ]) {
+    const apron = new THREE.Mesh(mainApronGeo, curbStoneMat);
+    apron.position.set(MAIN_LAGOON_BRIDGE.x, MAIN_LAGOON_BRIDGE.baseY - 0.015, az);
+    apron.receiveShadow = true;
+    mainBridge.add(apron);
+  }
   scene.add(mainBridge);
 
   // Smooth rail colliders (6.6m clear lane inside, ignoreCamera so camera glides across bridge!)
@@ -867,6 +864,7 @@ export function buildBridgesAndRoadNetwork(
       hz: MAIN_LAGOON_BRIDGE.halfLength,
       ignoreCamera: true,
       friction: 0.04,
+      kind: 'bridge-rail',
     },
     {
       x: 43.68,
@@ -877,6 +875,7 @@ export function buildBridgesAndRoadNetwork(
       hz: MAIN_LAGOON_BRIDGE.halfLength,
       ignoreCamera: true,
       friction: 0.04,
+      kind: 'bridge-rail',
     },
   );
 
@@ -1022,6 +1021,20 @@ export function buildBridgesAndRoadNetwork(
       );
     }
   }
+  // Flush stone abutment transition aprons at Viaduct ends
+  const vApronGeo = new THREE.BoxGeometry(vHalfW * 2, 0.075, 1.05);
+  geometries.push(vApronGeo);
+  for (const endAng of [vA0, vA1]) {
+    const endApron = new THREE.Mesh(vApronGeo, curbStoneMat);
+    endApron.position.set(
+      Math.cos(endAng) * vRad,
+      RING_LAGOON_VIADUCT.baseY - 0.015,
+      Math.sin(endAng) * vRad,
+    );
+    endApron.rotation.y = Math.atan2(-Math.sin(endAng), Math.cos(endAng));
+    endApron.receiveShadow = true;
+    viaductGroup.add(endApron);
+  }
   scene.add(viaductGroup);
 
   // Oriented smooth inner & outer guardrail colliders along curved viaduct
@@ -1046,6 +1059,7 @@ export function buildBridgesAndRoadNetwork(
         ry: tangentYaw,
         ignoreCamera: true,
         friction: 0.04,
+        kind: 'bridge-rail',
       });
     }
   }
@@ -1164,6 +1178,15 @@ export function buildBridgesAndRoadNetwork(
       );
     }
   }
+  // Flush stone threshold slabs at South Cove bridge abutments
+  const cApronGeo = new THREE.BoxGeometry(1.1, 0.07, SOUTH_COVE_BRIDGE.deckHalfWidth * 2);
+  geometries.push(cApronGeo);
+  for (const endX of [cXMin, cXMax]) {
+    const apron = new THREE.Mesh(cApronGeo, curbStoneMat);
+    apron.position.set(endX, SOUTH_COVE_BRIDGE.baseY - 0.015, SOUTH_COVE_BRIDGE.z);
+    apron.receiveShadow = true;
+    coveBridge.add(apron);
+  }
   scene.add(coveBridge);
 
   staticColliders.push(
@@ -1176,6 +1199,7 @@ export function buildBridgesAndRoadNetwork(
       hz: 0.24,
       ignoreCamera: true,
       friction: 0.04,
+      kind: 'bridge-rail',
     },
     {
       x: SOUTH_COVE_BRIDGE.xCenter,
@@ -1186,6 +1210,7 @@ export function buildBridgesAndRoadNetwork(
       hz: 0.24,
       ignoreCamera: true,
       friction: 0.04,
+      kind: 'bridge-rail',
     },
   );
 
@@ -1241,24 +1266,421 @@ export function buildBridgesAndRoadNetwork(
   scene.add(jettyGroup);
 
   // =========================================================================
-  // 8. DIRECTIONAL ROAD SIGNS & SQL VALLEY SIGNS
+  // 7A. EAST COASTAL SHORELINE OVERLOOK & BOLLARD RAILINGS (x: 59..69.5, z: -12.8..-17.8)
   // =========================================================================
-  const signDefs = [
-    { x: -12, z: -14, label: 'THE STUDIO', arrow: '↖', rotY: -0.6 },
-    { x: 14, z: -14, label: 'LAGOON BRIDGE', arrow: '↗', rotY: 0.6 },
-    { x: 0, z: -36, label: 'LOOKOUT HILL', arrow: '↑', rotY: 0 },
-    { x: 42, z: -60, label: 'SELECT * FROM', arrow: 'VALLEY', rotY: -0.3 },
-    { x: 53, z: -66, label: 'JOIN SKILLS', arrow: 'ON ID', rotY: 0.4 },
-    { x: -45, z: 8, label: 'THE PADDOCK', arrow: '↙', rotY: -0.9 },
-    { x: -31, z: 59, label: 'COVE BRIDGE', arrow: '→', rotY: 0.65 },
+  const overlookGroup = new THREE.Group();
+  const overlookPadGeo = new THREE.BoxGeometry(8.8, 0.16, 2.4);
+  const overlookBollardGeo = new THREE.CylinderGeometry(0.11, 0.14, 0.96, 8);
+  const overlookRailGeo = new THREE.CylinderGeometry(0.045, 0.045, 2.25, 6);
+  overlookRailGeo.rotateZ(Math.PI / 2);
+  const benchSeatGeo = new THREE.BoxGeometry(1.75, 0.1, 0.56);
+  const benchLegGeo = new THREE.BoxGeometry(0.12, 0.38, 0.48);
+  geometries.push(
+    overlookPadGeo,
+    overlookBollardGeo,
+    overlookRailGeo,
+    benchSeatGeo,
+    benchLegGeo,
+  );
+
+  const overlookAnchorGy = computeGroundHeight(64.2, -11.9);
+  const overlookPad = new THREE.Mesh(overlookPadGeo, curbStoneMat);
+  overlookPad.position.set(64.2, overlookAnchorGy + 0.04, -11.9);
+  overlookPad.receiveShadow = true;
+  overlookGroup.add(overlookPad);
+
+  const overlookPosts = [
+    { x: 59.8, z: -12.9 },
+    { x: 62.0, z: -12.9 },
+    { x: 64.2, z: -12.9 },
+    { x: 66.4, z: -12.9 },
+    { x: 68.6, z: -13.6 },
+    { x: 70.2, z: -15.2 },
   ];
+  for (let i = 0; i < overlookPosts.length; i++) {
+    const pt = overlookPosts[i];
+    const pGy = computeGroundHeight(pt.x, pt.z);
+    const post = new THREE.Mesh(overlookBollardGeo, timberDarkMat);
+    post.position.set(pt.x, pGy + 0.46, pt.z);
+    post.castShadow = true;
+    overlookGroup.add(post);
+
+    if (i < overlookPosts.length - 1) {
+      const nxt = overlookPosts[i + 1];
+      const nGy = computeGroundHeight(nxt.x, nxt.z);
+      const dx = nxt.x - pt.x;
+      const dz = nxt.z - pt.z;
+      const dist = Math.hypot(dx, dz);
+      const rail = new THREE.Mesh(overlookRailGeo, timberWarmMat);
+      rail.scale.set(dist / 2.25, 1, 1);
+      rail.position.set((pt.x + nxt.x) * 0.5, (pGy + nGy) * 0.5 + 0.78, (pt.z + nxt.z) * 0.5);
+      rail.rotation.y = -Math.atan2(dz, dx);
+      rail.castShadow = true;
+      overlookGroup.add(rail);
+    }
+  }
+
+  for (const bx of [61.8, 66.2]) {
+    const bGy = computeGroundHeight(bx, -11.6);
+    const seat = new THREE.Mesh(benchSeatGeo, timberWarmMat);
+    seat.position.set(bx, bGy + 0.44, -11.6);
+    seat.castShadow = true;
+    seat.receiveShadow = true;
+    const legL = new THREE.Mesh(benchLegGeo, masonryMat);
+    legL.position.set(bx - 0.66, bGy + 0.22, -11.6);
+    const legR = new THREE.Mesh(benchLegGeo, masonryMat);
+    legR.position.set(bx + 0.66, bGy + 0.22, -11.6);
+    overlookGroup.add(seat, legL, legR);
+  }
+  scene.add(overlookGroup);
+  staticColliders.push({
+    x: 64.2,
+    y: overlookAnchorGy + 0.5,
+    z: -12.9,
+    hx: 4.5,
+    hy: 0.7,
+    hz: 0.25,
+    ignoreCamera: true,
+    kind: 'prop',
+  });
+
+  // =========================================================================
+  // 7B. BRIDGE 4: FOREST TRAIL BROOK TIMBER BRIDGE (z = -84, x in [-111.5, -96.5])
+  // =========================================================================
+  const forestBridge = new THREE.Group();
+  const fbXMin = FOREST_BROOK_BRIDGE.xCenter - FOREST_BROOK_BRIDGE.halfLength;
+  const fbXMax = FOREST_BROOK_BRIDGE.xCenter + FOREST_BROOK_BRIDGE.halfLength;
+  const fbSteps = 18;
+  const fbSpanLen = (fbXMax - fbXMin) / fbSteps;
+
+  const fbSubGeo = new THREE.BoxGeometry(fbSpanLen + 0.14, 0.12, FOREST_BROOK_BRIDGE.deckHalfWidth * 2);
+  const fbStringerGeo = new THREE.BoxGeometry(fbSpanLen + 0.14, 0.24, 0.18);
+  const fbPlankGeo = new THREE.BoxGeometry(0.56, 0.07, FOREST_BROOK_BRIDGE.deckHalfWidth * 1.92);
+  const fbPostGeo = new THREE.CylinderGeometry(0.08, 0.1, 0.92, 8);
+  const fbRailGeo = new THREE.BoxGeometry(1.38, 0.09, 0.11);
+  const fbPilingGeo = new THREE.CylinderGeometry(0.14, 0.17, 2.3, 8);
+  const fbEndPostGeo = new THREE.BoxGeometry(0.38, 1.35, 0.38);
+  geometries.push(
+    fbSubGeo,
+    fbStringerGeo,
+    fbPlankGeo,
+    fbPostGeo,
+    fbRailGeo,
+    fbPilingGeo,
+    fbEndPostGeo,
+  );
+
+  for (let i = 0; i < fbSteps; i++) {
+    const x0 = fbXMin + i * fbSpanLen;
+    const x1 = x0 + fbSpanLen;
+    const xm = (x0 + x1) * 0.5;
+    const y0 = computeBridgeSurfaceY(x0, FOREST_BROOK_BRIDGE.z) ?? FOREST_BROOK_BRIDGE.baseY;
+    const y1 = computeBridgeSurfaceY(x1, FOREST_BROOK_BRIDGE.z) ?? FOREST_BROOK_BRIDGE.baseY;
+    const ym = (y0 + y1) * 0.5;
+    const rollZ = Math.atan2(y1 - y0, x1 - x0);
+
+    const sub = new THREE.Mesh(fbSubGeo, timberSubDeckMat);
+    sub.position.set(xm, ym - 0.11, FOREST_BROOK_BRIDGE.z);
+    sub.rotation.z = rollZ;
+    sub.castShadow = true;
+    sub.receiveShadow = true;
+    forestBridge.add(sub);
+
+    const plank = new THREE.Mesh(fbPlankGeo, timberPool[i % timberPool.length]);
+    plank.position.set(xm, ym - 0.032, FOREST_BROOK_BRIDGE.z);
+    plank.rotation.z = rollZ;
+    plank.receiveShadow = true;
+    plank.castShadow = true;
+    forestBridge.add(plank);
+
+    for (const sideZ of [FOREST_BROOK_BRIDGE.z - 1.72, FOREST_BROOK_BRIDGE.z + 1.72]) {
+      const str = new THREE.Mesh(fbStringerGeo, timberDarkMat);
+      str.position.set(xm, ym - 0.2, sideZ);
+      str.rotation.z = rollZ;
+      str.castShadow = true;
+      forestBridge.add(str);
+    }
+  }
+
+  for (const px of [-108.0, -104.0, -100.0]) {
+    const deckY = computeBridgeSurfaceY(px, FOREST_BROOK_BRIDGE.z) ?? 1.5;
+    for (const pz of [FOREST_BROOK_BRIDGE.z - 1.56, FOREST_BROOK_BRIDGE.z + 1.56]) {
+      const pile = new THREE.Mesh(fbPilingGeo, timberDarkMat);
+      pile.position.set(px, deckY - 1.25, pz);
+      pile.castShadow = true;
+      forestBridge.add(pile);
+    }
+  }
+
+  const fbRailSteps = 12;
+  const fbRailSpan = (fbXMax - fbXMin) / fbRailSteps;
+  for (const sideZ of [FOREST_BROOK_BRIDGE.z - 1.78, FOREST_BROOK_BRIDGE.z + 1.78]) {
+    for (let i = 0; i <= fbRailSteps; i++) {
+      const px = fbXMin + i * fbRailSpan;
+      const py = computeBridgeSurfaceY(px, FOREST_BROOK_BRIDGE.z) ?? FOREST_BROOK_BRIDGE.baseY;
+      if (i > 0 && i < fbRailSteps) {
+        const post = new THREE.Mesh(fbPostGeo, timberDarkMat);
+        post.position.set(px, py + 0.44, sideZ);
+        post.castShadow = true;
+        forestBridge.add(post);
+      }
+      if (i < fbRailSteps) {
+        const nx = px + fbRailSpan;
+        const ny = computeBridgeSurfaceY(nx, FOREST_BROOK_BRIDGE.z) ?? FOREST_BROOK_BRIDGE.baseY;
+        const rail = new THREE.Mesh(fbRailGeo, timberWarmMat);
+        rail.position.set((px + nx) * 0.5, (py + ny) * 0.5 + 0.84, sideZ);
+        rail.rotation.z = Math.atan2(ny - py, fbRailSpan);
+        rail.castShadow = true;
+        forestBridge.add(rail);
+      }
+    }
+  }
+
+  for (const endX of [fbXMin + 0.15, fbXMax - 0.15]) {
+    const endY = computeBridgeSurfaceY(endX, FOREST_BROOK_BRIDGE.z) ?? FOREST_BROOK_BRIDGE.baseY;
+    for (const sideZ of [FOREST_BROOK_BRIDGE.z - 1.82, FOREST_BROOK_BRIDGE.z + 1.82]) {
+      const ep = new THREE.Mesh(fbEndPostGeo, masonryMat);
+      ep.position.set(endX, endY + 0.58, sideZ);
+      ep.castShadow = true;
+      forestBridge.add(ep);
+      createArchitecturalLantern(
+        forestBridge,
+        endX,
+        endY + 1.24,
+        sideZ,
+        geometries,
+        sharedLantern,
+        roofDarkMat,
+        lanternMat,
+        0.82,
+      );
+    }
+  }
+  const fbApronGeo = new THREE.BoxGeometry(1.05, 0.07, FOREST_BROOK_BRIDGE.deckHalfWidth * 2);
+  geometries.push(fbApronGeo);
+  for (const endX of [fbXMin, fbXMax]) {
+    const apronY = computeGroundHeight(endX, FOREST_BROOK_BRIDGE.z);
+    const apron = new THREE.Mesh(fbApronGeo, curbStoneMat);
+    apron.position.set(endX, apronY - 0.015, FOREST_BROOK_BRIDGE.z);
+    apron.receiveShadow = true;
+    forestBridge.add(apron);
+  }
+  scene.add(forestBridge);
+
+  staticColliders.push(
+    {
+      x: FOREST_BROOK_BRIDGE.xCenter,
+      y: 1.9,
+      z: FOREST_BROOK_BRIDGE.z - 2.02,
+      hx: FOREST_BROOK_BRIDGE.halfLength,
+      hy: 1.0,
+      hz: 0.24,
+      ignoreCamera: true,
+      friction: 0.04,
+      kind: 'bridge-rail',
+    },
+    {
+      x: FOREST_BROOK_BRIDGE.xCenter,
+      y: 1.9,
+      z: FOREST_BROOK_BRIDGE.z + 2.02,
+      hx: FOREST_BROOK_BRIDGE.halfLength,
+      hy: 1.0,
+      hz: 0.24,
+      ignoreCamera: true,
+      friction: 0.04,
+      kind: 'bridge-rail',
+    },
+  );
+
+  // =========================================================================
+  // 7C. STUNT & DRIFT ARENA TARMAC PAD, LAUNCH RAMPS, SKY PLATFORMS & PARKING BAYS
+  // =========================================================================
+  const arenaGroup = new THREE.Group();
+  const arenaPadGeo = new THREE.PlaneGeometry(68, 78);
+  arenaPadGeo.rotateX(-Math.PI / 2);
+  geometries.push(arenaPadGeo);
+  const arenaPad = new THREE.Mesh(arenaPadGeo, solidRoadMat);
+  arenaPad.position.set(108, 0.025, 76);
+  arenaPad.receiveShadow = true;
+  arenaGroup.add(arenaPad);
+
+  // Arena apex perimeter curb blocks along East/South/West border
+  const arenaCurbGeo = new THREE.BoxGeometry(1.4, 0.16, 0.72);
+  geometries.push(arenaCurbGeo);
+  const arenaBorderPoints: { x: number; z: number; rotY: number }[] = [];
+  for (let x = 76; x <= 140; x += 2.6) {
+    arenaBorderPoints.push({ x, z: 37.2, rotY: 0 });
+    arenaBorderPoints.push({ x, z: 114.8, rotY: 0 });
+  }
+  for (let z = 39; z <= 113; z += 2.6) {
+    if (z < 47 || z > 57) arenaBorderPoints.push({ x: 74.2, z, rotY: Math.PI / 2 });
+    arenaBorderPoints.push({ x: 141.8, z, rotY: Math.PI / 2 });
+  }
+  arenaBorderPoints.forEach((pt, idx) => {
+    const cb = new THREE.Mesh(arenaCurbGeo, idx % 2 === 0 ? curbRedMat : creamMat);
+    cb.position.set(pt.x, 0.08, pt.z);
+    cb.rotation.y = pt.rotY;
+    cb.receiveShadow = true;
+    arenaGroup.add(cb);
+  });
+
+  // Drift hairpin dashed arc markings inside Stunt & Drift Arena
+  const driftLaneGeo = new THREE.RingGeometry(15.2, 15.65, 36);
+  driftLaneGeo.rotateX(-Math.PI / 2);
+  geometries.push(driftLaneGeo);
+  const driftRing = new THREE.Mesh(driftLaneGeo, stripeAmberMat);
+  driftRing.position.set(108, 0.038, 72);
+  arenaGroup.add(driftRing);
+
+  // Sculpted 3D Launch Ramps matching physicsMath.computeGroundHeight 1:1
+  const rampLipMat = new THREE.MeshStandardMaterial({
+    color: 0xffb347,
+    emissive: 0xec6d2c,
+    emissiveIntensity: 0.28,
+    roughness: 0.45,
+  });
+  const skyDeckMat = new THREE.MeshStandardMaterial({
+    color: 0x263238,
+    roughness: 0.55,
+    metalness: 0.32,
+  });
+  const skyRimMat = new THREE.MeshStandardMaterial({
+    color: 0x21968b,
+    emissive: 0x27c2b4,
+    emissiveIntensity: 0.45,
+    roughness: 0.35,
+  });
+  materials.push(rampLipMat, skyDeckMat, skyRimMat);
+
+  for (const ramp of STUNT_ARENA_RAMPS) {
+    const segs = 12;
+    const hw = ramp.width * 0.5;
+    const hl = ramp.length * 0.5;
+    const rPos: number[] = [];
+    const rUvs: number[] = [];
+    const rIdx: number[] = [];
+
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      const lz = -hl + t * ramp.length;
+      const y = ramp.height * Math.pow(t, 1.32);
+      rPos.push(-hw, y + 0.02, lz, hw, y + 0.02, lz);
+      rUvs.push(0, t * 2, 1, t * 2);
+      if (i < segs) {
+        const b = i * 2;
+        rIdx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3);
+      }
+    }
+    const rGeo = new THREE.BufferGeometry();
+    rGeo.setAttribute('position', new THREE.Float32BufferAttribute(rPos, 3));
+    rGeo.setAttribute('uv', new THREE.Float32BufferAttribute(rUvs, 2));
+    rGeo.setIndex(rIdx);
+    rGeo.computeVertexNormals();
+
+    // Side structural wedge walls for solid silhouette
+    const sideShape = new THREE.Shape();
+    sideShape.moveTo(-hl, 0);
+    for (let i = 1; i <= segs; i++) {
+      const t = i / segs;
+      sideShape.lineTo(-hl + t * ramp.length, ramp.height * Math.pow(t, 1.32));
+    }
+    sideShape.lineTo(hl, 0);
+    sideShape.closePath();
+    const sideWallGeo = new THREE.ExtrudeGeometry(sideShape, { depth: 0.24, bevelEnabled: false });
+    sideWallGeo.rotateY(Math.PI / 2);
+
+    const lipGeo = new THREE.BoxGeometry(ramp.width + 0.1, 0.16, 0.55);
+    geometries.push(rGeo, sideWallGeo, lipGeo);
+
+    const rGrp = new THREE.Group();
+    rGrp.position.set(ramp.x, 0, ramp.z);
+    rGrp.rotation.y = ramp.yaw;
+
+    const topMesh = new THREE.Mesh(rGeo, roadMat);
+    topMesh.castShadow = true;
+    topMesh.receiveShadow = true;
+
+    const leftWall = new THREE.Mesh(sideWallGeo, terracottaMat);
+    leftWall.position.x = -hw;
+    leftWall.castShadow = true;
+    const rightWall = new THREE.Mesh(sideWallGeo, terracottaMat);
+    rightWall.position.x = hw - 0.24;
+    rightWall.castShadow = true;
+
+    const lip = new THREE.Mesh(lipGeo, rampLipMat);
+    lip.position.set(0, ramp.height - 0.06, hl - 0.25);
+
+    rGrp.add(topMesh, leftWall, rightWall, lip);
+    arenaGroup.add(rGrp);
+  }
+
+  // Elevated Double-Jump Sky Platforms + Truss Legs
+  const trussLegGeo = new THREE.CylinderGeometry(0.18, 0.24, 1, 8);
+  geometries.push(trussLegGeo);
+  for (const plat of DOUBLE_JUMP_PLATFORMS) {
+    const deckGeo = new THREE.BoxGeometry(plat.width, plat.thickness, plat.length);
+    const rimGeo = new THREE.BoxGeometry(plat.width + 0.22, 0.14, plat.length + 0.22);
+    geometries.push(deckGeo, rimGeo);
+
+    const pGrp = new THREE.Group();
+    pGrp.position.set(plat.x, 0, plat.z);
+
+    const deck = new THREE.Mesh(deckGeo, skyDeckMat);
+    deck.position.y = plat.y - plat.thickness * 0.5;
+    deck.castShadow = true;
+    deck.receiveShadow = true;
+
+    const rim = new THREE.Mesh(rimGeo, skyRimMat);
+    rim.position.y = plat.y - 0.09;
+    pGrp.add(deck, rim);
+
+    const legH = plat.y - plat.thickness;
+    for (const lx of [-(plat.width * 0.42), plat.width * 0.42]) {
+      for (const lz of [-(plat.length * 0.42), plat.length * 0.42]) {
+        const leg = new THREE.Mesh(trussLegGeo, roofDarkMat);
+        leg.scale.set(1, legH, 1);
+        leg.position.set(lx, legH * 0.5, lz);
+        leg.castShadow = true;
+        pGrp.add(leg);
+      }
+    }
+    arenaGroup.add(pGrp);
+  }
+
+  // Precision Parking Bay Line Markings (Bay A, Bay B, Bay C)
+  for (const bay of PRECISION_PARKING_BAYS) {
+    const bayGrp = new THREE.Group();
+    bayGrp.position.set(bay.x, 0.04, bay.z);
+    bayGrp.rotation.y = bay.targetYaw;
+    const hw = bay.width * 0.5;
+    const hl = bay.length * 0.5;
+    const sideLineGeo = new THREE.BoxGeometry(0.16, 0.02, bay.length);
+    const endLineGeo = new THREE.BoxGeometry(bay.width + 0.16, 0.02, 0.16);
+    geometries.push(sideLineGeo, endLineGeo);
+    const lLeft = new THREE.Mesh(sideLineGeo, stripeWhiteMat);
+    lLeft.position.set(-hw, 0, 0);
+    const lRight = new THREE.Mesh(sideLineGeo, stripeWhiteMat);
+    lRight.position.set(hw, 0, 0);
+    const lFront = new THREE.Mesh(endLineGeo, stripeAmberMat);
+    lFront.position.set(0, 0, hl);
+    const lBack = new THREE.Mesh(endLineGeo, stripeWhiteMat);
+    lBack.position.set(0, 0, -hl);
+    bayGrp.add(lLeft, lRight, lFront, lBack);
+    arenaGroup.add(bayGrp);
+  }
+
+  scene.add(arenaGroup);
+
+  // =========================================================================
+  // 8. DIRECTIONAL ROAD SIGNS & SQL VALLEY SIGNS (strictly roadside clear)
+  // =========================================================================
   const rPostGeo = new THREE.CylinderGeometry(0.1, 0.12, 2.3, 8);
   const rPlinthGeo = new THREE.CylinderGeometry(0.2, 0.24, 0.24, 8);
   const rFrameGeo = new THREE.BoxGeometry(2.74, 1.32, 0.1);
   const rBoardGeo = new THREE.BoxGeometry(2.58, 1.18, 0.14);
   geometries.push(rPostGeo, rPlinthGeo, rFrameGeo, rBoardGeo);
 
-  for (const sd of signDefs) {
+  for (const sd of DIRECTIONAL_SIGNS) {
     const gy = computeGroundHeight(sd.x, sd.z);
     const rTex = createDirectionalBoardTexture(sd.label, sd.arrow);
     textures.push(rTex);
@@ -1294,9 +1716,9 @@ export function buildBridgesAndRoadNetwork(
 
   for (let i = 0; i < 16; i++) {
     const a = (i / 16) * Math.PI * 2 + 0.18;
-    const lx = Math.cos(a) * 38;
-    const lz = Math.sin(a) * 38;
-    if (isNearRoadOrBuilding(lx, lz)) continue;
+    const lx = Math.cos(a) * 38.2;
+    const lz = Math.sin(a) * 38.2;
+    if (!isPointClearForProp(lx, lz, 0.95) || isNearRoadOrBuilding(lx, lz)) continue;
     const gy = computeGroundHeight(lx, lz);
     const plinth = new THREE.Mesh(lampPlinthGeo, masonryMat);
     plinth.position.set(lx, gy + 0.22, lz);
@@ -1332,7 +1754,10 @@ export function buildBridgesAndRoadNetwork(
   const coveBridgeLight = new THREE.PointLight(0xffb866, 0.55, 22, 1.6);
   coveBridgeLight.position.set(SOUTH_COVE_BRIDGE.xCenter, 2.75, SOUTH_COVE_BRIDGE.z);
 
-  scene.add(mainBridgeLight, viaductLight, coveBridgeLight);
+  const forestBridgeLight = new THREE.PointLight(0xffb866, 0.55, 22, 1.6);
+  forestBridgeLight.position.set(FOREST_BROOK_BRIDGE.xCenter, 3.6, FOREST_BROOK_BRIDGE.z);
+
+  scene.add(mainBridgeLight, viaductLight, coveBridgeLight, forestBridgeLight);
 
   const updateLighting = (
     weather: WeatherMode,
@@ -1353,6 +1778,7 @@ export function buildBridgesAndRoadNetwork(
     mainBridgeLight.intensity = baseIntensity + flicker;
     viaductLight.intensity = baseIntensity * 0.85 + flicker * 0.8;
     coveBridgeLight.intensity = baseIntensity * 0.82 - flicker * 0.6;
+    forestBridgeLight.intensity = baseIntensity * 0.82 + flicker * 0.5;
   };
 
   const setWetness = (wetness: number) => {

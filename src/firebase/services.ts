@@ -24,6 +24,7 @@ import {
 import type { VersionedSaveState } from '../state/saveValidation';
 import type {
   AuthUserSummary,
+  ChallengeBests,
   GhostSample,
   LeaderboardEntry,
   VehicleConfig,
@@ -109,6 +110,7 @@ export interface CloudUserSaveDoc {
   bestLapSeconds: number | null;
   lastLapSeconds: number | null;
   distanceDrivenMeters: number;
+  challengeBests?: ChallengeBests;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -142,6 +144,13 @@ export function mergeCloudAndLocalSave(
       ? cloud.lastLapSeconds
       : null;
 
+  const minNullableSec = (a: number | null, b: unknown): number | null => {
+    const bv = typeof b === 'number' && Number.isFinite(b) && b > 0 ? b : null;
+    if (a !== null && bv !== null) return Math.min(a, bv);
+    return bv ?? a;
+  };
+  const cb = cloud.challengeBests;
+
   return {
     ...local,
     displayName: clampCloudDisplayName(
@@ -162,7 +171,7 @@ export function mergeCloudAndLocalSave(
     openedProjects: union(local.openedProjects, cloud.openedProjects, 30),
     collectedIds: union(local.collectedIds, cloud.collectedIds, 40),
     discoveredSecrets: union(local.discoveredSecrets, cloud.discoveredSecrets, 20),
-    completedChallenges: union(local.completedChallenges, cloud.completedChallenges, 20),
+    completedChallenges: union(local.completedChallenges, cloud.completedChallenges, 30),
     unlockedAchievements: union(local.unlockedAchievements, cloud.unlockedAchievements, 20),
     bestLapSeconds,
     lastLapSeconds: cloudLast ?? local.lastLapSeconds,
@@ -170,6 +179,14 @@ export function mergeCloudAndLocalSave(
       local.distanceDrivenMeters,
       typeof cloud.distanceDrivenMeters === 'number' ? cloud.distanceDrivenMeters : 0,
     ),
+    challengeBests: {
+      bestDriftScore: Math.max(local.challengeBests.bestDriftScore, typeof cb?.bestDriftScore === 'number' ? cb.bestDriftScore : 0),
+      bestStuntScore: Math.max(local.challengeBests.bestStuntScore, typeof cb?.bestStuntScore === 'number' ? cb.bestStuntScore : 0),
+      bestLagoonRunSeconds: minNullableSec(local.challengeBests.bestLagoonRunSeconds, cb?.bestLagoonRunSeconds),
+      bestDoubleJumpSeconds: minNullableSec(local.challengeBests.bestDoubleJumpSeconds, cb?.bestDoubleJumpSeconds),
+      bestParkingScore: Math.max(local.challengeBests.bestParkingScore, typeof cb?.bestParkingScore === 'number' ? cb.bestParkingScore : 0),
+      bestForestTrailSeconds: minNullableSec(local.challengeBests.bestForestTrailSeconds, cb?.bestForestTrailSeconds),
+    },
   };
 }
 
@@ -209,6 +226,7 @@ export async function saveCloudUserSave(
       accentColor: state.vehicle.accentColor.slice(0, 16),
       skinId: state.vehicle.skinId.slice(0, 32),
       wheelStyle: state.vehicle.wheelStyle,
+      rimStyle: state.vehicle.rimStyle || 'classic-5spoke',
       accessory: state.vehicle.accessory,
       headlightEffect: state.vehicle.headlightEffect,
       plateText: (state.vehicle.plateText || 'SANJAYA').slice(0, 8).toUpperCase(),
@@ -233,11 +251,19 @@ export async function saveCloudUserSave(
     openedProjects: clampStringList(state.openedProjects, 30),
     collectedIds: clampStringList(state.collectedIds, 40),
     discoveredSecrets: clampStringList(state.discoveredSecrets, 20),
-    completedChallenges: clampStringList(state.completedChallenges, 20),
+    completedChallenges: clampStringList(state.completedChallenges, 30),
     unlockedAchievements: clampStringList(state.unlockedAchievements, 20),
     bestLapSeconds: validBest,
     lastLapSeconds: validLast,
     distanceDrivenMeters: Math.max(0, Math.min(100_000_000, Math.round(state.distanceDrivenMeters))),
+    challengeBests: {
+      bestDriftScore: Math.max(0, Math.min(1_000_000, Math.round(state.challengeBests.bestDriftScore))),
+      bestStuntScore: Math.max(0, Math.min(1_000_000, Math.round(state.challengeBests.bestStuntScore))),
+      bestLagoonRunSeconds: state.challengeBests.bestLagoonRunSeconds,
+      bestDoubleJumpSeconds: state.challengeBests.bestDoubleJumpSeconds,
+      bestParkingScore: Math.max(0, Math.min(1_000_000, Math.round(state.challengeBests.bestParkingScore))),
+      bestForestTrailSeconds: state.challengeBests.bestForestTrailSeconds,
+    },
   };
 
   try {

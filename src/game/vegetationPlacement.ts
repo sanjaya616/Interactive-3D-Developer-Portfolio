@@ -11,10 +11,26 @@ import {
 import type { WeatherMode, WindMode } from '../types/portfolio';
 import { computeBridgeSurfaceY, computeGroundHeight } from './physicsMath';
 import {
+  AMPHIBIOUS_LAGOON_BOUNDS,
   EMERALD_LAGOON_BOUNDS,
   SOUTH_COVE_BOUNDS,
   computeWaterShoreDepth,
 } from './waterWaveMath';
+import {
+  DIRECTIONAL_SIGNS,
+  ROAD_SEGMENTS,
+  WEST_RIDGE_TUNNEL_DEF,
+  pointToOrientedRectDistance,
+} from './worldLayout';
+import { FOREST_BROOK_BRIDGE } from './physicsMath';
+import {
+  DRIFT_CIRCUIT_CHECKPOINTS,
+  FOREST_TRAIL_GATES,
+  LAGOON_RUN_CHECKPOINTS,
+  PRECISION_PARKING_BAYS,
+  STUNT_ARENA_RAMPS,
+  DOUBLE_JUMP_PLATFORMS,
+} from '../data/portfolioData';
 
 export type VegetationSpecies =
   | 'pine'
@@ -130,46 +146,25 @@ export function resolveWindProfile(
   };
 }
 
-const ROAD_SPOKE_SEGMENTS: readonly [number, number, number, number, number][] = [
-  [0, 0, 0, -37, 2.55],
-  [0, 0, 0, 44, 2.55],
-  [0, 0, -34, -32, 2.55],
-  [-34, -2, -62, 16, 2.55],
-  [-34, 24, -37, 44, 2.55],
-  [33, 14, 60, 8, 2.55],
-  [28, 22, 42, 44, 2.55],
-  [40, -32, 36, -42, 2.55],
-  [38, -44, 48, -70, 2.55],
-  [31, 4, 40, -12, 2.55],
-  // Lookout Hill sloped ramp road
-  [0, -37, 0, -64, 3.0],
-  // Hidden Pine Trail gravel route
-  [-34, -38, -28, -50, 1.95],
-  [-28, -50, -22, -58, 1.95],
-  [-22, -58, -13, -66, 1.95],
-  [-13, -66, -6, -70, 1.95],
-  // South Cove Footbridge gravel paths
-  [-38, 48, -34, 56, 2.15],
-  [-34, 56, -29.4, 62, 2.15],
-  [-6.6, 62, -3, 55, 2.15],
-  [-3, 55, 0, 46, 2.15],
-];
+const ROAD_SPOKE_SEGMENTS: readonly [number, number, number, number, number][] = ROAD_SEGMENTS.map(
+  (seg) => [
+    seg.x1,
+    seg.z1,
+    seg.x2,
+    seg.z2,
+    seg.width * 0.5 + (seg.surface === 'gravel' ? 0.52 : 0.42),
+  ],
+);
 
 const EXTRA_PROP_EXCLUSIONS: readonly [number, number, number][] = [
-  // Lighthouse, RFID keycard, security gate exit, road signs, dynamic crates
+  // Lighthouse, RFID keycard, security gate exit, relocated dynamic crates, and calibrated directional signs
   [73, -26, 4.8],
   [54, 42, 4.2],
   [48, 55, 4.5],
-  [-12, -14, 2.4],
-  [14, -14, 2.4],
-  [0, -36, 2.6],
-  [42, -60, 2.5],
-  [53, -66, 2.5],
-  [-45, 8, 2.5],
-  [-31, 59, 2.4],
-  [-11.6, -7, 2.8],
-  [11.6, -6, 2.8],
-  [-34.6, 43, 2.8],
+  [-16.8, -4.2, 2.8],
+  [16.2, -4.8, 2.8],
+  [-43.8, 44.6, 2.8],
+  ...DIRECTIONAL_SIGNS.map((sd): [number, number, number] => [sd.x, sd.z, sd.boundingRadius + 1.0]),
 ];
 
 const LANDMARK_BUILDING_FOOTPRINTS = WORLD_LANDMARKS.map((lm) => {
@@ -217,7 +212,7 @@ export function isClearForVegetation(
   options: ClearCheckOptions = {},
 ): boolean {
   const distOrigin = Math.hypot(x, z);
-  if (distOrigin > 122 || distOrigin < 15.0 + extraRadius) return false;
+  if (distOrigin > 158 || distOrigin < 15.0 + extraRadius) return false;
 
   // Inner Ring Road (r = 34)
   if (Math.abs(distOrigin - 34) < 3.15 + extraRadius) return false;
@@ -227,17 +222,30 @@ export function isClearForVegetation(
   if (Math.abs(distPaddock - 18) < 3.35 + extraRadius) return false;
   if (options.isTreeOrShrub && distPaddock < 22.6 + extraRadius) return false;
 
-  // Emerald Lagoon Bridge + North/South approach wingwalls + South Cove Footbridge
+  // Emerald Lagoon Bridge + North/South approach wingwalls + South Cove Footbridge + Forest Brook Bridge
   if (Math.abs(x - 40) < 5.0 + extraRadius && z >= -34.5 && z <= -9.5) return false;
-  if (Math.abs(z - 62) < 2.6 + extraRadius && x >= -31 && x <= -5) return false;
+  if (Math.abs(z - 62) < 2.6 + extraRadius && x >= -32 && x <= -4) return false;
+  if (Math.abs(z - FOREST_BROOK_BRIDGE.z) < 2.6 + extraRadius && x >= -113 && x <= -95) return false;
   if (computeBridgeSurfaceY(x, z) !== null) return false;
   // Lookout Hill ramp guardrails
   if (Math.abs(x) < 3.8 + extraRadius && z >= -60.5 && z <= -37.5) return false;
 
-  // West Ridge Vaulted Tunnel & portals
-  if (Math.abs(x + 42) < 6.8 + extraRadius && z >= -15 && z <= 7) return false;
+  // West Ridge Vaulted Tunnel & portals (oriented along Paddock approach spoke)
+  if (
+    pointToOrientedRectDistance(
+      x,
+      z,
+      WEST_RIDGE_TUNNEL_DEF.centerX,
+      WEST_RIDGE_TUNNEL_DEF.centerZ,
+      WEST_RIDGE_TUNNEL_DEF.outerHalfWidth + 1.1,
+      WEST_RIDGE_TUNNEL_DEF.halfLength + 2.2,
+      WEST_RIDGE_TUNNEL_DEF.yaw,
+    ) < extraRadius
+  ) {
+    return false;
+  }
 
-  // Road spokes, ramp, and Hidden Pine Trail
+  // Road spokes, ramp, and Hidden Pine / Forest Trail
   for (let i = 0; i < ROAD_SPOKE_SEGMENTS.length; i++) {
     const [x1, z1, x2, z2, halfW] = ROAD_SPOKE_SEGMENTS[i];
     if (distToSegment(x, z, x1, z1, x2, z2) < halfW + extraRadius) return false;
@@ -265,6 +273,30 @@ export function isClearForVegetation(
   // South Cove water buffer
   if (Math.hypot(x - SOUTH_COVE_BOUNDS.centerX, z - SOUTH_COVE_BOUNDS.centerZ) < 12.65 + (options.allowShoreline ? 0 : extraRadius * 0.4)) {
     return false;
+  }
+  // Amphibious Lagoon bank & Pond water buffer
+  if (Math.hypot(x - AMPHIBIOUS_LAGOON_BOUNDS.centerX, z - AMPHIBIOUS_LAGOON_BOUNDS.centerZ) < AMPHIBIOUS_LAGOON_BOUNDS.radius + (options.allowShoreline ? 0.2 : 1.4 + extraRadius * 0.5)) {
+    return false;
+  }
+  // Stunt & Drift Arena tarmac apron clear
+  if (x >= 72 && x <= 145 && z >= 36 && z <= 128) return false;
+  for (let i = 0; i < STUNT_ARENA_RAMPS.length; i++) {
+    if (Math.hypot(x - STUNT_ARENA_RAMPS[i].x, z - STUNT_ARENA_RAMPS[i].z) < 7.5 + extraRadius) return false;
+  }
+  for (let i = 0; i < DOUBLE_JUMP_PLATFORMS.length; i++) {
+    if (Math.hypot(x - DOUBLE_JUMP_PLATFORMS[i].x, z - DOUBLE_JUMP_PLATFORMS[i].z) < 6.5 + extraRadius) return false;
+  }
+  for (let i = 0; i < PRECISION_PARKING_BAYS.length; i++) {
+    if (Math.hypot(x - PRECISION_PARKING_BAYS[i].x, z - PRECISION_PARKING_BAYS[i].z) < 5.5 + extraRadius) return false;
+  }
+  for (let i = 0; i < DRIFT_CIRCUIT_CHECKPOINTS.length; i++) {
+    if (Math.hypot(x - DRIFT_CIRCUIT_CHECKPOINTS[i].x, z - DRIFT_CIRCUIT_CHECKPOINTS[i].z) < 7.0 + extraRadius) return false;
+  }
+  for (let i = 0; i < FOREST_TRAIL_GATES.length; i++) {
+    if (Math.hypot(x - FOREST_TRAIL_GATES[i].x, z - FOREST_TRAIL_GATES[i].z) < 5.2 + extraRadius) return false;
+  }
+  for (let i = 0; i < LAGOON_RUN_CHECKPOINTS.length; i++) {
+    if (Math.hypot(x - LAGOON_RUN_CHECKPOINTS[i].x, z - LAGOON_RUN_CHECKPOINTS[i].z) < 5.5 + extraRadius) return false;
   }
 
   // All 9 Landmark aprons + buildings
@@ -445,11 +477,13 @@ export function generateWorldVegetationLayout(): WorldVegetationLayout {
     }
   }
 
-  // 2. Hidden Pine Trail & Lookout Hill Northern Pine Groves
+  // 2. Hidden Pine Trail, Forest Trail District & Lookout Hill Northern Pine Groves
   const pineGroves = [
     [-36, -45], [-30, -56], [-26, -64], [-18, -69], [-14, -48],
     [-19, -76], [14, -75], [20, -64], [12, -54], [-10, -86],
     [12, -88], [-48, -56], [-56, -44], [-58, -24], [-68, -36],
+    // Forest Trail District groves
+    [-76, -62], [-94, -64], [-116, -72], [-134, -84], [-112, -108], [-92, -98],
   ];
   for (const [cx, cz] of pineGroves) {
     const count = 3;
@@ -464,6 +498,19 @@ export function generateWorldVegetationLayout(): WorldVegetationLayout {
         3.5,
       );
     }
+  }
+
+  // Amphibious Lagoon perimeter coastal palms & Stunt Arena border trees
+  for (let i = 0; i < 12; i++) {
+    const theta = (i / 12) * Math.PI * 2 + 0.2;
+    const rad = AMPHIBIOUS_LAGOON_BOUNDS.radius + 4.2 + (i % 2) * 2.5;
+    tryPlaceTree(
+      'palm',
+      AMPHIBIOUS_LAGOON_BOUNDS.centerX + Math.cos(theta) * rad,
+      AMPHIBIOUS_LAGOON_BOUNDS.centerZ + Math.sin(theta) * rad,
+      0.92 + rand() * 0.3,
+      3.8,
+    );
   }
 
   // 3. Broadleaf Groves around Studios, Query Valley ridges & central sunlit glades
@@ -522,6 +569,9 @@ export function generateWorldVegetationLayout(): WorldVegetationLayout {
     [16, -24], [6, 26], [-18, 22], [29, 32], [-28, -4],
     [15, 22], [-15, -24], [22, 46], [-21, -46], [56, 5], [-56, 42],
     [25, -62], [-34, 15], [46, 28], [-44, -24],
+    [-14, 18], [14, 18], [-25, 11], [25, -9], [11, 42], [-11, 42],
+    [51, 20], [56, 36], [-52, 38], [60, -40], [-64, -18], [-12, 84],
+    [18, 78], [14, -44],
   ];
   for (let i = 0; i < decoAnchors.length; i++) {
     const [ax, az] = decoAnchors[i];

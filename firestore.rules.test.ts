@@ -324,6 +324,9 @@ test('firestore.rules enforces Dirty Dozen, Eight Pillars, and PII safety invari
   for (const m of listMatches) {
     assert.equal(/\b(get|exists|isAdmin\()\b/.test(m[1]), false, `allow list contains lookup: ${m[1]}`);
   }
+
+  // 7. Garage vehicle accessory allowlist includes Forest Trail unlockable rack
+  assert.equal(rules.includes("'trail-expedition-rack'"), true);
 });
 
 test('resolveServerSigningSecret enforces persistent non-placeholder secret in production', () => {

@@ -1,9 +1,11 @@
 import { INITIAL_LEADERBOARD, INITIAL_WHISPERS } from '../data/portfolioData';
 import type {
+  ChallengeBests,
   GameSettings,
   GhostSample,
   LeaderboardEntry,
   VehicleConfig,
+  VehicleRimStyle,
   WhisperMessage,
 } from '../types/portfolio';
 
@@ -26,7 +28,17 @@ export interface VersionedSaveState {
   leaderboard: LeaderboardEntry[];
   whispers: WhisperMessage[];
   distanceDrivenMeters: number;
+  challengeBests: ChallengeBests;
 }
+
+export const DEFAULT_CHALLENGE_BESTS: ChallengeBests = {
+  bestDriftScore: 0,
+  bestStuntScore: 0,
+  bestLagoonRunSeconds: null,
+  bestDoubleJumpSeconds: null,
+  bestParkingScore: 0,
+  bestForestTrailSeconds: null,
+};
 
 export const DEFAULT_SETTINGS: GameSettings = {
   quality: 'high',
@@ -49,6 +61,7 @@ export const DEFAULT_VEHICLE: VehicleConfig = {
   accentColor: '#2BA89C',
   skinId: 'terracotta',
   wheelStyle: 'all-terrain',
+  rimStyle: 'classic-5spoke',
   accessory: 'spare-tire',
   headlightEffect: 'warm-halogen',
   plateText: 'SANJAYA',
@@ -75,6 +88,7 @@ export function createInitialSaveState(): VersionedSaveState {
     leaderboard: [...INITIAL_LEADERBOARD],
     whispers: [...INITIAL_WHISPERS],
     distanceDrivenMeters: 0,
+    challengeBests: { ...DEFAULT_CHALLENGE_BESTS },
   };
 }
 
@@ -86,6 +100,27 @@ function asStringArray(val: unknown): string[] {
 function sanitizeTier(val: unknown): 1 | 2 | 3 {
   if (val === 2 || val === 3) return val;
   return 1;
+}
+
+function sanitizeRimStyle(val: unknown): VehicleRimStyle {
+  if (val === 'classic-5spoke' || val === 'offroad-beadlock' || val === 'aero-mesh' || val === 'turbo-fan') {
+    return val;
+  }
+  return 'classic-5spoke';
+}
+
+function sanitizeScoreInt(val: unknown): number {
+  if (typeof val === 'number' && Number.isFinite(val) && val >= 0) {
+    return Math.min(1_000_000, Math.round(val));
+  }
+  return 0;
+}
+
+function sanitizePositiveSec(val: unknown): number | null {
+  if (typeof val === 'number' && Number.isFinite(val) && val > 0 && val <= 3600) {
+    return Number(val.toFixed(2));
+  }
+  return null;
 }
 
 function sanitizeGhost(val: unknown): GhostSample[] {
@@ -192,7 +227,8 @@ export function parseVersionedSave(raw: string | null | undefined): VersionedSav
       rawVehicle.accessory === 'spare-tire' ||
       rawVehicle.accessory === 'roof-lights' ||
       rawVehicle.accessory === 'cargo-box' ||
-      rawVehicle.accessory === 'spoiler'
+      rawVehicle.accessory === 'spoiler' ||
+      rawVehicle.accessory === 'trail-expedition-rack'
         ? rawVehicle.accessory
         : base.vehicle.accessory;
     const validHl =
@@ -201,6 +237,10 @@ export function parseVersionedSave(raw: string | null | undefined): VersionedSav
       rawVehicle.headlightEffect === 'amber-rally'
         ? rawVehicle.headlightEffect
         : base.vehicle.headlightEffect;
+
+    const rawBests = (parsed.challengeBests && typeof parsed.challengeBests === 'object'
+      ? parsed.challengeBests
+      : {}) as Partial<ChallengeBests>;
 
     const clampVol = (v: unknown, fallback: number): number =>
       typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : fallback;
@@ -231,6 +271,7 @@ export function parseVersionedSave(raw: string | null | undefined): VersionedSav
         accentColor: typeof rawVehicle.accentColor === 'string' && rawVehicle.accentColor.startsWith('#') ? rawVehicle.accentColor : base.vehicle.accentColor,
         skinId: typeof rawVehicle.skinId === 'string' ? rawVehicle.skinId : base.vehicle.skinId,
         wheelStyle: validWheel,
+        rimStyle: sanitizeRimStyle(rawVehicle.rimStyle),
         accessory: validAcc,
         headlightEffect: validHl,
         plateText: typeof rawVehicle.plateText === 'string' && rawVehicle.plateText.trim() ? rawVehicle.plateText.slice(0, 8).toUpperCase() : base.vehicle.plateText,
@@ -259,6 +300,14 @@ export function parseVersionedSave(raw: string | null | undefined): VersionedSav
         typeof parsed.distanceDrivenMeters === 'number' && Number.isFinite(parsed.distanceDrivenMeters)
           ? Math.max(0, Math.round(parsed.distanceDrivenMeters))
           : 0,
+      challengeBests: {
+        bestDriftScore: sanitizeScoreInt(rawBests.bestDriftScore),
+        bestStuntScore: sanitizeScoreInt(rawBests.bestStuntScore),
+        bestLagoonRunSeconds: sanitizePositiveSec(rawBests.bestLagoonRunSeconds),
+        bestDoubleJumpSeconds: sanitizePositiveSec(rawBests.bestDoubleJumpSeconds),
+        bestParkingScore: sanitizeScoreInt(rawBests.bestParkingScore),
+        bestForestTrailSeconds: sanitizePositiveSec(rawBests.bestForestTrailSeconds),
+      },
     };
   } catch {
     return base;

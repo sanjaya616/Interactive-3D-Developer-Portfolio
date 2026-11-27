@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import type { DevPerfStats, SceneManager } from '../game/sceneManager';
 import type {
+  ActiveChallengeId,
   GameHudSnapshot,
   GamePhase,
   GameSettings,
@@ -33,6 +34,7 @@ interface GameCanvasProps {
   onStartFromTitle: () => void;
   onAchievementTrigger: (id: string) => void;
   onChallengeCompleted: (challengeId: string) => void;
+  onChallengeMetric?: (id: Exclude<ActiveChallengeId, null>, value: number) => void;
   onCollectiblePicked: (id: string, label: string, found: number, total: number) => void;
   onToast: (message: string) => void;
   onRaceLapCompleted: (lapSeconds: number, ghostFrames: GhostSample[]) => void;
@@ -64,6 +66,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   onStartFromTitle,
   onAchievementTrigger,
   onChallengeCompleted,
+  onChallengeMetric,
   onCollectiblePicked,
   onToast,
   onRaceLapCompleted,
@@ -85,6 +88,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     onStartFromTitle,
     onAchievementTrigger,
     onChallengeCompleted,
+    onChallengeMetric,
     onCollectiblePicked,
     onToast,
     onRaceLapCompleted,
@@ -105,6 +109,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     onStartFromTitle,
     onAchievementTrigger,
     onChallengeCompleted,
+    onChallengeMetric,
     onCollectiblePicked,
     onToast,
     onRaceLapCompleted,
@@ -144,6 +149,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           onStartFromTitle: () => callbacksRef.current.onStartFromTitle(),
           onAchievementTrigger: (id) => callbacksRef.current.onAchievementTrigger(id),
           onChallengeCompleted: (cid) => callbacksRef.current.onChallengeCompleted(cid),
+          onChallengeMetric: (id, val) => callbacksRef.current.onChallengeMetric?.(id, val),
           onCollectiblePicked: (id, label, found, total) =>
             callbacksRef.current.onCollectiblePicked(id, label, found, total),
           onToast: (msg) => callbacksRef.current.onToast(msg),

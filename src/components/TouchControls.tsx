@@ -6,6 +6,7 @@ import {
   ArrowUp,
   Hand,
   OctagonX,
+  RotateCcw,
   Zap,
 } from 'lucide-react';
 import type { TouchInputState } from '../game/controls';
@@ -13,6 +14,9 @@ import type { WorldLandmark } from '../types/portfolio';
 
 interface TouchControlsProps {
   nearestLandmark: WorldLandmark | null;
+  jumpsRemaining?: number;
+  isOverturned?: boolean;
+  onRecover?: () => void;
   onChange: (partial: Partial<TouchInputState>) => void;
   onJump: () => void;
   onInteract: () => void;
@@ -20,6 +24,9 @@ interface TouchControlsProps {
 
 export const TouchControls: React.FC<TouchControlsProps> = ({
   nearestLandmark,
+  jumpsRemaining = 2,
+  isOverturned = false,
+  onRecover,
   onChange,
   onJump,
   onInteract,
@@ -132,6 +139,22 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
       {/* Right: Drift/Jump/Boost Row above Ergonomic Pedals */}
       <div className="flex flex-col items-end gap-2 pointer-events-auto touch-none">
         <div className="flex items-center gap-1.5 touch-none">
+          {isOverturned && onRecover && (
+            <button
+              type="button"
+              data-testid="touch-recover"
+              aria-label="Recover overturned vehicle"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onRecover();
+              }}
+              className="min-h-[44px] h-11 px-2.5 rounded-xl bg-[#E65448] border-[1.5px] border-[#26211E] shadow-[0_2px_0_#26211E] flex items-center gap-1 text-[10px] font-extrabold tracking-wider text-[#FFF9F0] touch-none cursor-pointer animate-pulse"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>REC</span>
+            </button>
+          )}
           <button
             type="button"
             data-testid="touch-drift"
@@ -165,9 +188,19 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
               setPressed('jump', false);
             }}
             onPointerCancel={() => setPressed('jump', false)}
-            className={`min-h-[44px] min-w-[44px] h-11 px-3 rounded-xl bg-[#F5E9D4]/95 border-[1.5px] border-[#26211E] shadow-[0_2px_0_#26211E] text-[10px] font-extrabold tracking-wider text-[#26211E] touch-none cursor-pointer ${activeCls('jump')}`}
+            className={`min-h-[44px] min-w-[44px] h-11 px-2.5 rounded-xl bg-[#F5E9D4]/95 border-[1.5px] border-[#26211E] shadow-[0_2px_0_#26211E] text-[10px] font-extrabold tracking-wider text-[#26211E] flex items-center gap-1.5 touch-none cursor-pointer ${activeCls('jump')}`}
           >
-            JMP
+            <span>JMP</span>
+            <span className="inline-flex items-center gap-0.5" aria-hidden="true">
+              {[0, 1].map((idx) => (
+                <span
+                  key={idx}
+                  className={`w-1.5 h-1.5 rounded-full border border-[#26211E] ${
+                    idx < jumpsRemaining ? 'bg-[#EC6D2C]' : 'bg-transparent opacity-40'
+                  }`}
+                />
+              ))}
+            </span>
           </button>
           <button
             type="button"

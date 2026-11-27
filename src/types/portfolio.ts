@@ -154,8 +154,16 @@ export interface AchievementReward {
 }
 
 export type VehicleChassisType = 'buggy' | 'rover' | 'rally';
-export type VehicleAccessoryType = 'none' | 'spare-tire' | 'roof-lights' | 'cargo-box' | 'spoiler';
+export type VehicleRimStyle = 'classic-5spoke' | 'offroad-beadlock' | 'aero-mesh' | 'turbo-fan';
+export type VehicleAccessoryType =
+  | 'none'
+  | 'spare-tire'
+  | 'roof-lights'
+  | 'cargo-box'
+  | 'spoiler'
+  | 'trail-expedition-rack';
 export type HeadlightEffectType = 'warm-halogen' | 'cool-led' | 'amber-rally';
+export type WaterDriveState = 'dry' | 'entry' | 'shallow' | 'exit' | 'deep-warning';
 
 export interface VehicleConfig {
   chassisType: VehicleChassisType;
@@ -163,12 +171,22 @@ export interface VehicleConfig {
   accentColor: string;
   skinId: string;
   wheelStyle: 'all-terrain' | 'sport' | 'dune';
+  rimStyle?: VehicleRimStyle;
   accessory: VehicleAccessoryType;
   headlightEffect: HeadlightEffectType;
   plateText: string;
   engineTier: 1 | 2 | 3;
   suspensionTier: 1 | 2 | 3;
   boostTier: 1 | 2 | 3;
+}
+
+export interface ChallengeBests {
+  bestDriftScore: number;
+  bestStuntScore: number;
+  bestLagoonRunSeconds: number | null;
+  bestDoubleJumpSeconds: number | null;
+  bestParkingScore: number;
+  bestForestTrailSeconds: number | null;
 }
 
 export interface GameSettings {
@@ -239,7 +257,36 @@ export type ActiveChallengeId =
   | 'memory'
   | 'treasure'
   | 'timetrial'
+  | 'lagoon-run'
+  | 'drift-master'
+  | 'stunt-master'
+  | 'double-jump-trial'
+  | 'precision-parking'
+  | 'forest-trail'
   | null;
+
+export type MissionCategoryGroup =
+  | 'EXPLORATION'
+  | 'RACING'
+  | 'STUNTS'
+  | 'WATER'
+  | 'TECHNOLOGY';
+
+export interface MissionCatalogItem {
+  id: string;
+  title: string;
+  category: MissionCategoryGroup;
+  difficulty: 'Beginner' | 'Normal' | 'Pro';
+  objective: string;
+  startLocationLabel: string;
+  startPoint: { x: number; z: number };
+  startYaw?: number;
+  controlsHint: string;
+  rewardSummary: string;
+  mode: 'challenge' | 'race' | 'tour';
+  challengeId?: Exclude<ActiveChallengeId, null>;
+  personalBestUnit?: 'score' | 'seconds';
+}
 
 export interface ActiveChallengeHud {
   id: ActiveChallengeId;
@@ -253,6 +300,8 @@ export interface ActiveChallengeHud {
   status: 'idle' | 'active' | 'completed' | 'failed';
   rewardText: string;
   feedbackText?: string;
+  liveScore?: number;
+  targetScore?: number;
 }
 
 export interface RaceHudState {
@@ -273,6 +322,18 @@ export interface GameHudSnapshot {
   isBoosting: boolean;
   isDrifting: boolean;
   isGrounded: boolean;
+  jumpsRemaining: number;
+  maxJumps: number;
+  isOverturned: boolean;
+  autoRecoverProgress: number;
+  waterState: WaterDriveState;
+  waterDepth: number;
+  driftScoreActive: number;
+  driftCombo: number;
+  driftTotalScore: number;
+  stuntScore: number;
+  pitchDeg: number;
+  rollDeg: number;
   headlightsOn: boolean;
   zoneName: string;
   nearestLandmark: WorldLandmark | null;

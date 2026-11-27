@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { QualityLevel, WeatherMode } from '../types/portfolio';
 import {
+  AMPHIBIOUS_LAGOON_BOUNDS,
   EMERALD_LAGOON_BOUNDS,
   MOORED_BOAT_ANCHOR,
   SOUTH_COVE_BOUNDS,
@@ -16,8 +17,10 @@ export interface WaterSystem {
   waterMat: THREE.MeshPhysicalMaterial;
   lagoonMesh: THREE.Mesh;
   coveMesh: THREE.Mesh;
+  amphibiousMesh: THREE.Mesh;
   applyWeather: (mode: WeatherMode) => void;
   applyQuality: (quality: QualityLevel) => void;
+  setVehicleWake: (x: number, z: number, speedMs: number, inWater: boolean) => void;
   update: (motionTime: number, boatMesh: THREE.Object3D | null) => void;
 }
 
@@ -181,6 +184,7 @@ export function createWaterSystem(
     uDeepColor: { value: new THREE.Color(WEATHER_PALETTES.sunny.deepHex) },
     uFoamColor: { value: new THREE.Color(WEATHER_PALETTES.sunny.foamHex) },
     uHighlightColor: { value: new THREE.Color(WEATHER_PALETTES.sunny.highlightHex) },
+    uVehicleWake: { value: new THREE.Vector4(0, 0, 0, 0) }, // xz, speedIntensity, inWaterActive
   };
 
   const w0 = WATER_WAVE_OCTAVES[0];
@@ -213,7 +217,10 @@ export function createWaterSystem(
         return max(0.0, -sdf);
       }
       vec2 coveCenter = vec2(${SOUTH_COVE_BOUNDS.centerX.toFixed(2)}, ${SOUTH_COVE_BOUNDS.centerZ.toFixed(2)});
-      return max(0.0, ${SOUTH_COVE_BOUNDS.radius.toFixed(2)} - length(xz - coveCenter));
+      float coveD = max(0.0, ${SOUTH_COVE_BOUNDS.radius.toFixed(2)} - length(xz - coveCenter));
+      vec2 amphCenter = vec2(${AMPHIBIOUS_LAGOON_BOUNDS.centerX.toFixed(2)}, ${AMPHIBIOUS_LAGOON_BOUNDS.centerZ.toFixed(2)});
+      float amphD = max(0.0, ${AMPHIBIOUS_LAGOON_BOUNDS.radius.toFixed(2)} - length(xz - amphCenter));
+      return max(coveD, amphD);
     }
   `;
 
@@ -292,6 +299,7 @@ export function createWaterSystem(
       uniform vec3 uDeepColor;
       uniform vec3 uFoamColor;
       uniform vec3 uHighlightColor;
+      uniform vec4 uVehicleWake;
       varying vec3 vWaterWorldPos;
       varying float vWaveCrest;
       varying vec3 vWaterViewRight;
@@ -395,11 +403,21 @@ export function createWaterSystem(
            ? smoothstep(0.62, 0.96, vWaveCrest) * smoothstep(0.45, 0.82, swN2) * (0.2 + uRainStrength * 0.36)
            : 0.0;
 
-         // Localized pier, piling & boat wake ripples
+         // Localized pier, piling, boat wake, rain rings & live vehicle wake ripples
          float swObstacles = uQuality > 0.5 ? swObstacleRipples(swXZ, uTime) : 0.0;
          float swRainRings = (uRainStrength > 0.01 && uQuality > 0.5) ? swRainRipples(swXZ, uTime) * uRainStrength : 0.0;
+         float swVehWake = 0.0;
+         if (uVehicleWake.w > 0.05) {
+           float vDist = length(swXZ - uVehicleWake.xy);
+           if (vDist < 5.5) {
+             float vWave = sin(vDist * 7.2 - uTime * 7.5) * 0.5 + 0.5;
+             float vFade = 1.0 - smoothstep(0.6, 5.5, vDist);
+             float vCore = smoothstep(1.6, 0.5, vDist);
+             swVehWake = max(vWave * vFade * 0.8, vCore * 0.72) * uVehicleWake.z * uVehicleWake.w;
+           }
+         }
 
-         float swTotalFoam = clamp(swShoreFoam + swWhitecap + swObstacles * 0.54 + swRainRings * 0.38, 0.0, 0.9);
+         float swTotalFoam = clamp(swShoreFoam + swWhitecap + swObstacles * 0.54 + swRainRings * 0.38 + swVehWake, 0.0, 0.92);
          diffuseColor.rgb = mix(swBaseCol, uFoamColor, swTotalFoam);
          diffuseColor.a = clamp(mix(0.64, uDeepOpacity, smoothstep(0.0, 2.2, swDepth)) + swTotalFoam * 0.2, 0.58, 0.97);
         `,
@@ -459,6 +477,16 @@ export function createWaterSystem(
   coveMesh.receiveShadow = true;
   coveMesh.renderOrder = 1;
   scene.add(coveMesh);
+
+  // Shallow Amphibious Lagoon disc at (-36, 118), r = 22.4m
+  const amphGeo = createSubdividedDiscGeometry(22.4, 64, 22);
+  geometries.push(amphGeo);
+
+  const amphibiousMesh = new THREE.Mesh(amphGeo, waterMat);
+  amphibiousMesh.position.set(AMPHIBIOUS_LAGOON_BOUNDS.centerX, WATER_BASE_Y, AMPHIBIOUS_LAGOON_BOUNDS.centerZ);
+  amphibiousMesh.receiveShadow = true;
+  amphibiousMesh.renderOrder = 1;
+  scene.add(amphibiousMesh);
 
   const applyWeather = (mode: WeatherMode) => {
     currentWeather = mode;
@@ -525,12 +553,21 @@ export function createWaterSystem(
     }
   };
 
+  const setVehicleWake = (x: number, z: number, speedMs: number, inWater: boolean) => {
+    waterUniforms.uVehicleWake.value.x = x;
+    waterUniforms.uVehicleWake.value.y = z;
+    waterUniforms.uVehicleWake.value.z = Math.min(1.25, 0.35 + speedMs * 0.08);
+    waterUniforms.uVehicleWake.value.w = inWater ? 1.0 : Math.max(0, waterUniforms.uVehicleWake.value.w * 0.88);
+  };
+
   return {
     waterMat,
     lagoonMesh,
     coveMesh,
+    amphibiousMesh,
     applyWeather,
     applyQuality,
+    setVehicleWake,
     update,
   };
 }

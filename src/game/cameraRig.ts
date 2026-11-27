@@ -94,8 +94,8 @@ export class CameraRig {
       computeGroundHeight(this.photoFocus.x, this.photoFocus.z) + 0.7,
       45,
     );
-    this.photoFocus.x = THREE.MathUtils.clamp(this.photoFocus.x, -110, 110);
-    this.photoFocus.z = THREE.MathUtils.clamp(this.photoFocus.z, -110, 110);
+    this.photoFocus.x = THREE.MathUtils.clamp(this.photoFocus.x, -155, 155);
+    this.photoFocus.z = THREE.MathUtils.clamp(this.photoFocus.z, -155, 155);
   }
 
   orbitPhotoCamera(deltaYaw: number, deltaPitch: number): void {
@@ -189,26 +189,25 @@ export class CameraRig {
         if (dx * dx + dz * dz > (totalLen + 8) * (totalLen + 8)) continue;
         if (c.hx < 0.7 && c.hz < 0.7) continue; // ignore thin tree trunks for smooth driving camera
 
-        // Step along camera ray
-        const minX = c.x - c.hx - 0.55;
-        const maxX = c.x + c.hx + 0.55;
+        // Step along camera ray (transforming into collider local space if rotated)
+        const halfX = c.hx + 0.55;
+        const halfZ = c.hz + 0.55;
         const minY = c.y - c.hy - 0.2;
         const maxY = c.y + c.hy + 0.5;
-        const minZ = c.z - c.hz - 0.55;
-        const maxZ = c.z + c.hz + 0.55;
+        const hasRot = Boolean(c.ry && Math.abs(c.ry) > 1e-4);
+        const cosR = hasRot ? Math.cos(c.ry!) : 1;
+        const sinR = hasRot ? Math.sin(c.ry!) : 0;
 
         for (let t = 2.0; t <= clampedLen; t += 0.9) {
           const sx = anchor.x + _rayDir.x * t;
           const sy = anchor.y + _rayDir.y * t;
           const sz = anchor.z + _rayDir.z * t;
-          if (
-            sx >= minX &&
-            sx <= maxX &&
-            sy >= minY &&
-            sy <= maxY &&
-            sz >= minZ &&
-            sz <= maxZ
-          ) {
+          if (sy < minY || sy > maxY) continue;
+          const rdx = sx - c.x;
+          const rdz = sz - c.z;
+          const lx = hasRot ? rdx * cosR - rdz * sinR : rdx;
+          const lz = hasRot ? rdx * sinR + rdz * cosR : rdz;
+          if (Math.abs(lx) <= halfX && Math.abs(lz) <= halfZ) {
             clampedLen = Math.max(2.6, t - 0.9);
             break;
           }
@@ -238,9 +237,19 @@ export class CameraRig {
     isBoosting: boolean,
     mode: CameraMode,
     dt: number,
+    isDrifting = false,
+    vehicleYawRad?: number,
   ): void {
-    _forward.set(0, 0, -1).applyQuaternion(vehicleQuat).setY(0).normalize();
-    if (_forward.lengthSq() < 0.01) _forward.set(0, 0, -1);
+    if (vehicleYawRad !== undefined) {
+      _forward.set(-Math.sin(vehicleYawRad), 0, -Math.cos(vehicleYawRad));
+    } else {
+      _forward.set(0, 0, -1).applyQuaternion(vehicleQuat).setY(0);
+      if (_forward.lengthSq() < 0.02) {
+        _forward.set(0, 0, -1);
+      } else {
+        _forward.normalize();
+      }
+    }
 
     const applyFollowOrbit = (baseDist: number, baseHeight: number, lookAhead: number) => {
       const baseYaw = Math.atan2(-_forward.x, -_forward.z);
@@ -270,7 +279,6 @@ export class CameraRig {
       );
       _desiredTarget.copy(vehiclePos);
     } else {
-      // 'orbit' Free Orbit camera controlled via drag + zoom
       const radius = 11.5 * this.zoomScale;
       const horiz = Math.cos(this.orbitPitch) * radius;
       _desiredPos.set(
@@ -293,7 +301,10 @@ export class CameraRig {
         ? 46
         : this.reducedMotion
           ? 52
-          : 52 + Math.min(10, Math.abs(speedMs) * 0.28) + (isBoosting ? 5.5 : 0);
+          : 52 +
+            Math.min(10, Math.abs(speedMs) * 0.28) +
+            (isBoosting ? 5.5 : 0) +
+            (isDrifting ? 2.5 : 0);
     if (Math.abs(this.camera.fov - targetFov) > 0.05) {
       this.camera.fov = THREE.MathUtils.damp(this.camera.fov, targetFov, 6, dt);
       this.camera.updateProjectionMatrix();

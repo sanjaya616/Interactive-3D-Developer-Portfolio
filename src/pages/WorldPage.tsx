@@ -5,6 +5,7 @@ import { GameCanvas } from '../components/GameCanvas';
 import { GameHUD } from '../components/GameHUD';
 import { LandmarkModal } from '../components/LandmarkModal';
 import { LoadingScreen } from '../components/LoadingScreen';
+import { MissionSelectorModal } from '../components/MissionSelectorModal';
 import { PauseModal } from '../components/PauseModal';
 import { PhotoModeOverlay } from '../components/PhotoModeOverlay';
 import { TitleOverlay } from '../components/TitleOverlay';
@@ -34,6 +35,7 @@ import type {
   GameHudSnapshot,
   GamePhase,
   GhostSample,
+  MissionCatalogItem,
   WorldLandmark,
 } from '../types/portfolio';
 
@@ -43,6 +45,18 @@ const INITIAL_HUD: GameHudSnapshot = {
   isBoosting: false,
   isDrifting: false,
   isGrounded: true,
+  jumpsRemaining: 2,
+  maxJumps: 2,
+  isOverturned: false,
+  autoRecoverProgress: 0,
+  waterState: 'dry',
+  waterDepth: 0,
+  driftScoreActive: 0,
+  driftCombo: 1,
+  driftTotalScore: 0,
+  stuntScore: 0,
+  pitchDeg: 0,
+  rollDeg: 0,
   headlightsOn: true,
   zoneName: 'Starting Plaza',
   nearestLandmark: null,
@@ -104,6 +118,8 @@ export const WorldPage: React.FC = () => {
     markSecretDiscovered,
     completedChallenges,
     markChallengeCompleted,
+    challengeBests,
+    recordChallengeMetric,
     unlockAchievement,
     recentAchievement,
     clearRecentAchievement,
@@ -127,6 +143,8 @@ export const WorldPage: React.FC = () => {
   const [phase, setPhase] = useState<GamePhase>('loading');
   const [hud, setHud] = useState<GameHudSnapshot>(INITIAL_HUD);
   const [mapOpen, setMapOpen] = useState(false);
+  const [missionsOpen, setMissionsOpen] = useState(false);
+  const [missionWaypoint, setMissionWaypoint] = useState<{ x: number; z: number } | null>(null);
   const [activeLandmark, setActiveLandmark] = useState<WorldLandmark | null>(null);
   const [objectiveId, setObjectiveId] = useState<string | null>(() => {
     const firstUnvisited = WORLD_LANDMARKS.find(
@@ -152,6 +170,7 @@ export const WorldPage: React.FC = () => {
   const [isTouchDevice, setIsTouchDevice] = useState(false);
   const [devPerfOpen, setDevPerfOpen] = useState(false);
   const [devPerfStats, setDevPerfStats] = useState<DevPerfStats | null>(null);
+  const [devCollisionDebug, setDevCollisionDebug] = useState(false);
 
   const managerRef = useRef<SceneManager | null>(null);
   const lastSyncedDistanceRef = useRef(0);
@@ -189,6 +208,11 @@ export const WorldPage: React.FC = () => {
       if (e.key === 'F9') {
         e.preventDefault();
         setDevPerfOpen((o) => !o);
+      } else if (e.key === 'F3') {
+        e.preventDefault();
+        if (managerRef.current) {
+          setDevCollisionDebug(managerRef.current.toggleCollisionDebug());
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -236,7 +260,7 @@ export const WorldPage: React.FC = () => {
     return () => registerWorldNavigator(null);
   }, [registerWorldNavigator]);
 
-  const panelOpen = Boolean(activeLandmark || mapOpen || drawerOpen || assistantOpen);
+  const panelOpen = Boolean(activeLandmark || mapOpen || missionsOpen || drawerOpen || assistantOpen);
   const lockBodyScroll = phase === 'playing' && !panelOpen;
 
   useEffect(() => {
@@ -297,13 +321,21 @@ export const WorldPage: React.FC = () => {
   }, [tourState]);
 
   useEffect(() => {
-    managerRef.current?.setWaypointTarget(activeBeaconTarget);
-  }, [activeBeaconTarget, phase]);
+    managerRef.current?.setWaypointTarget(
+      activeBeaconTarget,
+      undefined,
+      missionWaypoint ?? undefined,
+    );
+  }, [activeBeaconTarget, missionWaypoint, phase]);
 
   const handleReady = useCallback(() => {
     setPhase(autoStart ? 'playing' : 'title');
-    managerRef.current?.setWaypointTarget(activeBeaconTarget);
-  }, [autoStart, activeBeaconTarget]);
+    managerRef.current?.setWaypointTarget(
+      activeBeaconTarget,
+      undefined,
+      missionWaypoint ?? undefined,
+    );
+  }, [autoStart, activeBeaconTarget, missionWaypoint]);
 
   const handleStartExploring = useCallback(() => {
     if (document.activeElement instanceof HTMLElement) {
@@ -313,6 +345,10 @@ export const WorldPage: React.FC = () => {
   }, []);
 
   const handleTogglePause = useCallback(() => {
+    if (missionsOpen) {
+      setMissionsOpen(false);
+      return;
+    }
     if (mapOpen) {
       setMapOpen(false);
       return;
@@ -327,7 +363,7 @@ export const WorldPage: React.FC = () => {
       if (prev === 'paused') return 'playing';
       return prev;
     });
-  }, [mapOpen, activeLandmark]);
+  }, [missionsOpen, mapOpen, activeLandmark]);
 
   const handleTogglePhotoMode = useCallback(() => {
     if (mapOpen || activeLandmark) return;
@@ -464,13 +500,50 @@ export const WorldPage: React.FC = () => {
   );
 
   const handleStartChallenge = useCallback((id: Exclude<ActiveChallengeId, null>) => {
+    setMissionWaypoint(null);
     managerRef.current?.startChallenge(id);
   }, []);
 
   const handleStartRace = useCallback(() => {
+    setMissionWaypoint(null);
     beginPaddockRaceSession();
     managerRef.current?.startPaddockRace();
   }, [beginPaddockRaceSession]);
+
+  const handleChallengeMetric = useCallback(
+    (id: Exclude<ActiveChallengeId, null>, value: number) => {
+      const isTimed =
+        id === 'lagoon-run' || id === 'double-jump-trial' || id === 'forest-trail';
+      recordChallengeMetric(id, value, isTimed);
+    },
+    [recordChallengeMetric],
+  );
+
+  const handleStartMissionItem = useCallback(
+    (item: MissionCatalogItem) => {
+      setMissionsOpen(false);
+      setMapOpen(false);
+      setActiveLandmark(null);
+      setMissionWaypoint(null);
+      setPhase('playing');
+      if (item.mode === 'race') {
+        handleStartRace();
+      } else {
+        managerRef.current?.startMission(item, handleStartTour);
+      }
+    },
+    [handleStartRace, handleStartTour],
+  );
+
+  const handleRouteMissionItem = useCallback(
+    (item: MissionCatalogItem) => {
+      setMissionsOpen(false);
+      setPhase('playing');
+      setMissionWaypoint(item.startPoint);
+      pushNotification('info', `GPS set to ${item.startLocationLabel} — follow sky beacon!`);
+    },
+    [pushNotification],
+  );
 
   const showTouch =
     phase === 'playing' &&
@@ -520,6 +593,7 @@ export const WorldPage: React.FC = () => {
         onStartFromTitle={handleStartExploring}
         onAchievementTrigger={unlockAchievement}
         onChallengeCompleted={handleChallengeCompleted}
+        onChallengeMetric={handleChallengeMetric}
         onCollectiblePicked={handleCollectiblePicked}
         onToast={handleGenericToast}
         onRaceLapCompleted={handleRaceLapCompleted}
@@ -554,14 +628,19 @@ export const WorldPage: React.FC = () => {
           onStartTour={handleStartTour}
           onSkipTourStop={handleSkipTourStop}
           onEndTour={handleEndTour}
-          onClearObjective={() => setObjectiveId(null)}
+          onClearObjective={() => {
+            setObjectiveId(null);
+            setMissionWaypoint(null);
+          }}
           onOpenMenu={() => setDrawerOpen(true)}
           onOpenMap={() => setMapOpen(true)}
+          onOpenMissions={() => setMissionsOpen(true)}
           onToggleAudio={toggleAudio}
           onToggleHeadlights={toggleHeadlights}
           onEnterPhotoMode={() => setPhase('photomode')}
           onCycleCamera={cycleCameraMode}
           onRespawn={() => managerRef.current?.respawnVehicle()}
+          onRecover={() => managerRef.current?.recoverVehicle()}
           onPause={() => setPhase('paused')}
           onInteract={handleInteractLandmark}
           onRestartChallenge={() => managerRef.current?.restartActiveChallenge()}
@@ -582,6 +661,9 @@ export const WorldPage: React.FC = () => {
       {showTouch && (
         <TouchControls
           nearestLandmark={hud.nearestLandmark}
+          jumpsRemaining={hud.jumpsRemaining}
+          isOverturned={hud.isOverturned}
+          onRecover={() => managerRef.current?.recoverVehicle()}
           onChange={(p) => managerRef.current?.controls.setTouchInput(p)}
           onJump={() => managerRef.current?.controls.triggerTouchJump()}
           onInteract={() => {
@@ -609,6 +691,16 @@ export const WorldPage: React.FC = () => {
         onOpenRoute={handleOpenRoute}
       />
 
+      <MissionSelectorModal
+        open={missionsOpen}
+        completedChallenges={completedChallenges}
+        bestLapSeconds={bestLapSeconds}
+        challengeBests={challengeBests}
+        onClose={() => setMissionsOpen(false)}
+        onStartMission={handleStartMissionItem}
+        onRouteMission={handleRouteMissionItem}
+      />
+
       <PauseModal
         open={phase === 'paused'}
         settings={settings}
@@ -632,8 +724,13 @@ export const WorldPage: React.FC = () => {
           setDrawerOpen(true);
         }}
         onOpenClassic={() => navigate('/classic')}
+        onOpenMissions={() => {
+          setPhase('playing');
+          setMissionsOpen(true);
+        }}
         onSetObjective={(id) => {
           setTourState((prev) => (prev.active ? endGuidedTour(prev) : prev));
+          setMissionWaypoint(null);
           setObjectiveId(id);
         }}
         onWarpToLandmark={handleWarpToLandmarkId}
@@ -790,23 +887,44 @@ export const WorldPage: React.FC = () => {
         </div>
       )}
 
-      {/* DEV-Only Collapsible Performance Monitor (excluded in production builds) */}
+      {/* DEV-Only Collapsible Performance Monitor & F3 Collision Debug (excluded in production builds) */}
       {import.meta.env.DEV && phase === 'playing' && !panelOpen && (
-        <div className="fixed top-[4.5rem] left-3 sm:left-5 z-30 pointer-events-auto">
+        <div className="fixed top-[4.5rem] left-3 sm:left-5 z-30 pointer-events-auto flex flex-col items-start gap-1.5">
           {!devPerfOpen ? (
-            <button
-              type="button"
-              tabIndex={-1}
-              data-testid="dev-perf-toggle"
-              onClick={(e) => {
-                e.currentTarget.blur();
-                setDevPerfOpen(true);
-              }}
-              title="Toggle Dev Performance Monitor (F9)"
-              className="px-2 py-1 rounded-lg bg-[#26211E]/85 text-[#F5E9D4] border border-[#61564E] text-[10px] font-extrabold tracking-wider tabular-nums hover:bg-[#26211E] cursor-pointer"
-            >
-              PERF {devPerfStats ? `${devPerfStats.fps} FPS` : 'DEV'}
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                tabIndex={-1}
+                data-testid="dev-perf-toggle"
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  setDevPerfOpen(true);
+                }}
+                title="Toggle Dev Performance Monitor (F9)"
+                className="px-2 py-1 rounded-lg bg-[#26211E]/85 text-[#F5E9D4] border border-[#61564E] text-[10px] font-extrabold tracking-wider tabular-nums hover:bg-[#26211E] cursor-pointer"
+              >
+                PERF {devPerfStats ? `${devPerfStats.fps} FPS` : 'DEV'}
+              </button>
+              <button
+                type="button"
+                tabIndex={-1}
+                data-testid="dev-collider-toggle"
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  if (managerRef.current) {
+                    setDevCollisionDebug(managerRef.current.toggleCollisionDebug());
+                  }
+                }}
+                title="Toggle Collision Wireframes (F3)"
+                className={`px-2 py-1 rounded-lg border text-[10px] font-extrabold tracking-wider cursor-pointer ${
+                  devCollisionDebug
+                    ? 'bg-[#21968B] text-[#FFF9F0] border-[#FFF9F0]'
+                    : 'bg-[#26211E]/85 text-[#F5E9D4] border-[#61564E] hover:bg-[#26211E]'
+                }`}
+              >
+                F3 WIREFRAMES {devCollisionDebug ? 'ON' : 'OFF'}
+              </button>
+            </div>
           ) : (
             <div
               data-testid="dev-perf-monitor"

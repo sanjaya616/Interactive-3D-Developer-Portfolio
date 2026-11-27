@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  FOREST_BROOK_BRIDGE,
   MAIN_LAGOON_BRIDGE,
   RING_LAGOON_VIADUCT,
   SOUTH_COVE_BRIDGE,
@@ -8,13 +9,21 @@ import {
   computeBridgeSurfaceY,
   computeDrivingParamsForVehicle,
   computeGroundHeight,
+  computeSafeRecoveryPose,
+  createInitialDoubleJumpState,
+  createInitialDriftScoreState,
+  evaluateWaterPhysics,
   findNearestLandmark,
   getBridgeColliderSegments,
   getZoneName,
+  isVehicleOverturned,
   speedMsToKmh,
+  stepDoubleJumpState,
+  stepDriftScoring,
   stepPlanarDriving,
 } from './physicsMath';
 import {
+  AMPHIBIOUS_LAGOON_BOUNDS,
   EMERALD_LAGOON_BOUNDS,
   MOORED_BOAT_ANCHOR,
   SOUTH_COVE_BOUNDS,
@@ -37,16 +46,26 @@ import { ChallengeManager } from './challengeController';
 import {
   ACHIEVEMENTS_LIST,
   DEVELOPER_PROFILE,
+  DOUBLE_JUMP_PLATFORMS,
+  DRIFT_CIRCUIT_CHECKPOINTS,
+  FOREST_TRAIL_GATES,
+  GARAGE_ACCESSORY_OPTIONS,
+  GARAGE_RIM_OPTIONS,
   INITIAL_LEADERBOARD,
   JOURNEY_MILESTONES,
+  LAGOON_RUN_CHECKPOINTS,
+  LAGOON_RUN_OBSTACLES,
+  MISSION_CATALOG,
   NAVIGATION_ROUTES,
   PADDOCK_CHECKPOINTS,
   PORTFOLIO_PROJECTS,
+  PRECISION_PARKING_BAYS,
   SECRET_LOCATIONS,
   SERVICES_LIST,
   SKILL_CATEGORIES,
   SKILLS_CATALOG,
   SQL_CHALLENGE_GATES,
+  STUNT_AIR_CHECKPOINTS,
   TIME_TRIAL_CHECKPOINTS,
   WORLD_COLLECTIBLES,
   WORLD_LANDMARKS,
@@ -190,6 +209,10 @@ test('computeGroundHeight models flat plaza, Lookout Hill plateau, water basins,
     colliders.filter((c) => c.bridgeId === SOUTH_COVE_BRIDGE.id).length,
     8,
   );
+  assert.equal(
+    colliders.filter((c) => c.bridgeId === FOREST_BROOK_BRIDGE.id).length,
+    6,
+  );
   for (const seg of colliders) {
     const topCenterY = seg.y + seg.hy;
     const exactDeckY = computeBridgeSurfaceY(seg.x, seg.z);
@@ -273,7 +296,7 @@ test('all 9 destinations are distinct, non-overlapping, and detected cleanly', (
   assert.equal(getZoneName(40, -22, WORLD_LANDMARKS), 'Emerald Lagoon Bridge');
   assert.equal(getZoneName(28, -20, WORLD_LANDMARKS), 'Lagoon Ring Viaduct');
   assert.equal(getZoneName(-18, 62, WORLD_LANDMARKS), 'South Cove Footbridge');
-  assert.equal(getZoneName(-42, -4, WORLD_LANDMARKS), 'West Ridge Tunnel');
+  assert.equal(getZoneName(-42.65, 3.41, WORLD_LANDMARKS), 'West Ridge Tunnel');
 });
 
 test('parseVersionedSave handles null, corrupted JSON, partial data, and valid v3 saves', () => {
@@ -579,4 +602,304 @@ test('atmosphere presets, shadow scaling, and multi-layer cloud velocities are c
   assert.ok(cirrus.length >= 6);
   const uniqueDirections = new Set(clouds.map((c) => `${c.vx.toFixed(2)},${c.vz.toFixed(2)}`));
   assert.ok(uniqueDirections.size >= 8, 'Clouds move with diverse speeds and directions');
+});
+
+test('stepDoubleJumpState enforces edge-triggered primary + 1 mid-air double-jump and landing reset', () => {
+  let dj = createInitialDoubleJumpState();
+  assert.equal(dj.jumpsRemaining, 2);
+
+  // 1. Primary grounded launch
+  const first = stepDoubleJumpState(dj, {
+    isGrounded: true,
+    verticalVel: 0,
+    jumpJustPressed: true,
+    isOverturned: false,
+    inputBlocked: false,
+    dt: 0.016,
+    baseJumpVelocity: 8.2,
+  });
+  assert.equal(first.triggeredJump, 'primary');
+  assert.equal(first.jumpVelocityY, 8.2);
+  assert.equal(first.next.jumpsRemaining, 1);
+  dj = first.next;
+
+  // 2. Advance airborne past cooldown (~0.2s) and trigger 2nd jump
+  for (let i = 0; i < 6; i++) {
+    dj = stepDoubleJumpState(dj, {
+      isGrounded: false,
+      verticalVel: 3.0,
+      jumpJustPressed: false,
+      isOverturned: false,
+      inputBlocked: false,
+      dt: 0.035,
+      baseJumpVelocity: 8.2,
+    }).next;
+  }
+
+  const dbl = stepDoubleJumpState(dj, {
+    isGrounded: false,
+    verticalVel: 0.5,
+    jumpJustPressed: true,
+    isOverturned: false,
+    inputBlocked: false,
+    dt: 0.016,
+    baseJumpVelocity: 8.2,
+  });
+  assert.equal(dbl.triggeredJump, 'double');
+  assert.ok(Math.abs(dbl.jumpVelocityY - 8.2 * 0.96) < 1e-5);
+  assert.equal(dbl.next.jumpsRemaining, 0);
+  dj = dbl.next;
+
+  // 3. Third press in mid-air must be rejected strictly
+  const third = stepDoubleJumpState(dj, {
+    isGrounded: false,
+    verticalVel: -1.5,
+    jumpJustPressed: true,
+    isOverturned: false,
+    inputBlocked: false,
+    dt: 0.05,
+    baseJumpVelocity: 8.2,
+  });
+  assert.equal(third.triggeredJump, 'none');
+  assert.equal(third.jumpVelocityY, 0);
+  assert.equal(third.next.jumpsRemaining, 0);
+
+  // 4. Touching down with negative velocity restores 2 jumps and reports landing impact
+  const landed = stepDoubleJumpState(third.next, {
+    isGrounded: true,
+    verticalVel: -6.4,
+    jumpJustPressed: false,
+    isOverturned: false,
+    inputBlocked: false,
+    dt: 0.05,
+    baseJumpVelocity: 8.2,
+  });
+  assert.equal(landed.next.jumpsRemaining, 2);
+  assert.ok(landed.landedImpactVel > 6.0);
+});
+
+test('stepDriftScoring grows combo during speed drift, banks clean exits, and cancels low-speed donuts', () => {
+  let ds = createInitialDriftScoreState();
+  for (let i = 0; i < 30; i++) {
+    const step = stepDriftScoring(ds, {
+      forwardSpeed: 15,
+      lateralSpeed: 5.5,
+      isGrounded: true,
+      isDrifting: true,
+      crashedOrOverturned: false,
+      dt: 0.05,
+    });
+    ds = step.next;
+    assert.equal(step.penalizedNow, false);
+  }
+  assert.ok(ds.activeScore > 100);
+  assert.ok(ds.comboMultiplier >= 1.5);
+
+  // Clean recovery banks active score with speed bonus
+  const banked = stepDriftScoring(ds, {
+    forwardSpeed: 14,
+    lateralSpeed: 0.3,
+    isGrounded: true,
+    isDrifting: false,
+    crashedOrOverturned: false,
+    dt: 0.05,
+  });
+  assert.ok(banked.bankedNow > 100);
+  assert.equal(banked.next.totalBankedScore, banked.bankedNow);
+  assert.equal(banked.next.activeScore, 0);
+
+  // Overturned or low-speed donut drops active drift score with penalty flag
+  let active = createInitialDriftScoreState();
+  for (let i = 0; i < 10; i++) {
+    active = stepDriftScoring(active, {
+      forwardSpeed: 12,
+      lateralSpeed: 4.5,
+      isGrounded: true,
+      isDrifting: true,
+      crashedOrOverturned: false,
+      dt: 0.05,
+    }).next;
+  }
+  const crash = stepDriftScoring(active, {
+    forwardSpeed: 0.8,
+    lateralSpeed: 0.4,
+    isGrounded: true,
+    isDrifting: true,
+    crashedOrOverturned: false,
+    dt: 0.05,
+  });
+  assert.equal(crash.bankedNow, 0);
+  assert.equal(crash.penalizedNow, true);
+  assert.equal(crash.next.activeScore, 0);
+});
+
+test('evaluateWaterPhysics & overturn recovery distinguish dry, shallow Lagoon, deep water, and bridges', () => {
+  const dry = evaluateWaterPhysics({
+    x: 0,
+    y: 0.65,
+    z: 0,
+    vy: 0,
+    speedMs: 12,
+    shoreDepth: 0,
+    waterSurfaceY: WATER_BASE_Y,
+    onBridge: false,
+    prevWaterState: 'dry',
+  });
+  assert.equal(dry.waterState, 'dry');
+  assert.equal(dry.requiresDeepRescue, false);
+
+  const amphDepth = computeWaterShoreDepth(AMPHIBIOUS_LAGOON_BOUNDS.centerX, AMPHIBIOUS_LAGOON_BOUNDS.centerZ);
+  const amphEntry = evaluateWaterPhysics({
+    x: AMPHIBIOUS_LAGOON_BOUNDS.centerX,
+    y: -0.25,
+    z: AMPHIBIOUS_LAGOON_BOUNDS.centerZ,
+    vy: -0.5,
+    speedMs: 10,
+    shoreDepth: amphDepth,
+    waterSurfaceY: WATER_BASE_Y,
+    onBridge: false,
+    prevWaterState: 'dry',
+  });
+  assert.equal(amphEntry.waterState, 'entry');
+  assert.equal(amphEntry.requiresDeepRescue, false);
+  assert.ok(amphEntry.buoyancyAccelY > 0);
+  assert.ok(amphEntry.waterDragScale > 1.0);
+  assert.ok(amphEntry.waterGripScale < 0.9);
+
+  const amphShallow = evaluateWaterPhysics({
+    x: AMPHIBIOUS_LAGOON_BOUNDS.centerX,
+    y: -0.25,
+    z: AMPHIBIOUS_LAGOON_BOUNDS.centerZ,
+    vy: 0,
+    speedMs: 10,
+    shoreDepth: amphDepth,
+    waterSurfaceY: WATER_BASE_Y,
+    onBridge: false,
+    prevWaterState: 'entry',
+  });
+  assert.equal(amphShallow.waterState, 'shallow');
+
+  const emeraldDeep = evaluateWaterPhysics({
+    x: EMERALD_LAGOON_BOUNDS.centerX,
+    y: -0.95,
+    z: EMERALD_LAGOON_BOUNDS.centerZ,
+    vy: -1,
+    speedMs: 5,
+    shoreDepth: 7,
+    waterSurfaceY: WATER_BASE_Y,
+    onBridge: false,
+    prevWaterState: 'dry',
+  });
+  assert.equal(emeraldDeep.waterState, 'deep-warning');
+  assert.equal(emeraldDeep.requiresDeepRescue, true);
+
+  assert.equal(isVehicleOverturned(0.1), true);
+  assert.equal(isVehicleOverturned(0.95), false);
+  const recovery = computeSafeRecoveryPose(
+    EMERALD_LAGOON_BOUNDS.centerX,
+    EMERALD_LAGOON_BOUNDS.centerZ,
+    0.4,
+    () => false,
+    computeWaterShoreDepth,
+  );
+  assert.ok(Number.isFinite(recovery.x) && Number.isFinite(recovery.y));
+});
+
+test('15-mission catalog, 4 rim styles, 6 accessories, and ChallengeManager execute all 6 expansion challenges', () => {
+  assert.equal(MISSION_CATALOG.length, 15);
+  assert.equal(GARAGE_RIM_OPTIONS.length, 4);
+  assert.equal(GARAGE_ACCESSORY_OPTIONS.length, 6);
+  const trailRack = GARAGE_ACCESSORY_OPTIONS.find((a) => a.id === 'trail-expedition-rack');
+  assert.equal(trailRack?.unlockChallengeId, 'forest-trail');
+
+  const categoryCounts = MISSION_CATALOG.reduce<Record<string, number>>((acc, item) => {
+    acc[item.category] = (acc[item.category] ?? 0) + 1;
+    return acc;
+  }, {});
+  assert.deepEqual(categoryCounts, {
+    EXPLORATION: 3,
+    RACING: 3,
+    STUNTS: 3,
+    WATER: 1,
+    TECHNOLOGY: 5,
+  });
+
+  const savedWithTrailRack = parseVersionedSave(
+    JSON.stringify({
+      version: SAVE_VERSION,
+      vehicle: { ...DEFAULT_VEHICLE, accessory: 'trail-expedition-rack' },
+    }),
+  );
+  assert.equal(savedWithTrailRack.vehicle.accessory, 'trail-expedition-rack');
+
+  const cm = new ChallengeManager();
+
+  // 1. Lagoon Run (3-2-1-GO countdown throttle lock -> GO -> +2s buoy penalty -> timed completion)
+  cm.startChallenge('lagoon-run');
+  assert.equal(cm.isThrottleLocked(), true);
+  const c1 = cm.tick(-34, 84, 1.0);
+  assert.equal(c1.playBeep, true);
+  assert.equal(cm.isThrottleLocked(), true);
+  const c2 = cm.tick(-34, 84, 1.0);
+  assert.equal(c2.playBeep, true);
+  assert.equal(cm.isThrottleLocked(), true);
+  const cGo = cm.tick(-34, 84, 0.6);
+  assert.equal(cGo.playGo, true);
+  assert.equal(cm.isThrottleLocked(), false);
+
+  const penaltyFx = cm.tick(LAGOON_RUN_OBSTACLES[0].x, LAGOON_RUN_OBSTACLES[0].z, 0.5);
+  assert.equal(penaltyFx.playBeep, true);
+  assert.ok((cm.getActiveChallengeHud().timerSec ?? 0) >= 2.4);
+  let lagoonDoneFx = {};
+  for (const cp of LAGOON_RUN_CHECKPOINTS) {
+    lagoonDoneFx = cm.tick(cp.x, cp.z, 0.5);
+  }
+  assert.equal(cm.getActiveChallengeHud().status, 'completed');
+  assert.equal((lagoonDoneFx as { completeChallengeId?: string }).completeChallengeId, 'lagoon-run');
+
+  // 2. Drift Master
+  cm.startChallenge('drift-master');
+  let driftFx = {};
+  for (let i = 0; i < DRIFT_CIRCUIT_CHECKPOINTS.length; i++) {
+    const dc = DRIFT_CIRCUIT_CHECKPOINTS[i];
+    driftFx = cm.tick(dc.x, dc.z, 0.2, { driftBankedNow: i === 0 ? 800 : 0 });
+  }
+  assert.equal(cm.getActiveChallengeHud().status, 'completed');
+  assert.equal((driftFx as { completeChallengeId?: string }).completeChallengeId, 'drift-master');
+
+  // 3. Stunt Master (airborne gates + upright landing)
+  cm.startChallenge('stunt-master');
+  for (const sc of STUNT_AIR_CHECKPOINTS.slice(0, 2)) {
+    cm.tick(sc.x, sc.z, 1.5, { py: sc.y, isGrounded: false, justDoubleJumped: true });
+  }
+  const stuntDone = cm.tick(96, 68, 0.05, { py: 0.7, isGrounded: true, justLanded: true });
+  assert.equal(cm.getActiveChallengeHud().status, 'completed');
+  assert.equal(stuntDone.completeChallengeId, 'stunt-master');
+
+  // 4. Double-Jump Sky Trial
+  cm.startChallenge('double-jump-trial');
+  cm.tick(DOUBLE_JUMP_PLATFORMS[0].x, DOUBLE_JUMP_PLATFORMS[0].z, 0.5, { py: DOUBLE_JUMP_PLATFORMS[0].y + 0.4 });
+  const djDone = cm.tick(DOUBLE_JUMP_PLATFORMS[1].x, DOUBLE_JUMP_PLATFORMS[1].z, 0.5, {
+    py: DOUBLE_JUMP_PLATFORMS[1].y + 0.4,
+  });
+  assert.equal(cm.getActiveChallengeHud().status, 'completed');
+  assert.equal(djDone.completeChallengeId, 'double-jump-trial');
+
+  // 5. Precision Parking (Bay A, B, C)
+  cm.startChallenge('precision-parking');
+  let parkDone = {};
+  for (const bay of PRECISION_PARKING_BAYS) {
+    parkDone = cm.tick(bay.x, bay.z, 0.7, { yaw: bay.targetYaw, speedMs: 0.3 });
+  }
+  assert.equal(cm.getActiveChallengeHud().status, 'completed');
+  assert.equal((parkDone as { completeChallengeId?: string }).completeChallengeId, 'precision-parking');
+
+  // 6. Forest Trail Expedition
+  cm.startChallenge('forest-trail');
+  let ftDone = {};
+  for (const fg of FOREST_TRAIL_GATES) {
+    ftDone = cm.tick(fg.x, fg.z, 0.5);
+  }
+  assert.equal(cm.getActiveChallengeHud().status, 'completed');
+  assert.equal((ftDone as { completeChallengeId?: string }).completeChallengeId, 'forest-trail');
 });

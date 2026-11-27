@@ -17,6 +17,12 @@ export const SOUTH_COVE_BOUNDS = {
   radius: 12.35,
 } as const;
 
+export const AMPHIBIOUS_LAGOON_BOUNDS = {
+  centerX: -36,
+  centerZ: 118,
+  radius: 22.0,
+} as const;
+
 export const MOORED_BOAT_ANCHOR = {
   x: 60,
   z: -20.5,
@@ -82,8 +88,11 @@ export function computeWaterShoreDepth(x: number, z: number): number {
     const sdf = outDist + inDist - EMERALD_LAGOON_BOUNDS.cornerRadius;
     return Math.max(0, -sdf);
   }
-  const distFromCenter = Math.hypot(x - SOUTH_COVE_BOUNDS.centerX, z - SOUTH_COVE_BOUNDS.centerZ);
-  return Math.max(0, SOUTH_COVE_BOUNDS.radius - distFromCenter);
+  const distCove = Math.hypot(x - SOUTH_COVE_BOUNDS.centerX, z - SOUTH_COVE_BOUNDS.centerZ);
+  const coveShore = Math.max(0, SOUTH_COVE_BOUNDS.radius - distCove);
+  const distAmph = Math.hypot(x - AMPHIBIOUS_LAGOON_BOUNDS.centerX, z - AMPHIBIOUS_LAGOON_BOUNDS.centerZ);
+  const amphShore = Math.max(0, AMPHIBIOUS_LAGOON_BOUNDS.radius - distAmph);
+  return Math.max(coveShore, amphShore);
 }
 
 export interface WaterSurfaceSample {

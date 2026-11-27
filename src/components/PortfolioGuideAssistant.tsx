@@ -182,7 +182,7 @@ export const PortfolioGuideAssistant: React.FC = () => {
     ? worldPhase === 'playing' || worldPhase === 'paused'
       ? touchHudActive
         ? 'top-[68px] right-3 sm:top-[74px] sm:right-5'
-        : 'top-[68px] right-3 md:top-auto md:bottom-[220px] md:right-5'
+        : 'top-[68px] right-3 md:top-auto md:bottom-[248px] lg:bottom-[266px] md:right-5'
       : 'bottom-16 right-4 sm:bottom-6 sm:right-6'
     : 'bottom-4 right-4 sm:bottom-6 sm:right-6';
 

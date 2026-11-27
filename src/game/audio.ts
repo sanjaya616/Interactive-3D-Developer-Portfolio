@@ -69,6 +69,10 @@ class SoundEngine {
   private impactSound: Howl | null = null;
   private beepLowSound: Howl | null = null;
   private beepHighSound: Howl | null = null;
+  private doubleJumpSound: Howl | null = null;
+  private landSound: Howl | null = null;
+  private recoverSound: Howl | null = null;
+  private splashSound: Howl | null = null;
 
   private engineCtx: AudioContext | null = null;
   private sfxBus: GainNode | null = null;
@@ -155,6 +159,35 @@ class SoundEngine {
       return Math.sin(2 * Math.PI * 880 * t) * env * 0.35;
     });
 
+    const doubleJumpSamples = createToneSamples(0.28, sr, (t, p) => {
+      const freq = 280 + p * 460;
+      const env = Math.sin(Math.PI * Math.min(1, p * 4)) * (1 - p);
+      return (
+        (Math.sin(2 * Math.PI * freq * t) * 0.65 +
+          Math.sin(2 * Math.PI * freq * 1.5 * t) * 0.35) *
+        env *
+        0.34
+      );
+    });
+
+    const landSamples = createToneSamples(0.16, sr, (t, p) => {
+      const freq = 96 - p * 48;
+      const env = Math.exp(-p * 7.5);
+      return (Math.sin(2 * Math.PI * freq * t) * 0.78 + (Math.random() * 2 - 1) * 0.22) * env * 0.4;
+    });
+
+    const recoverSamples = createToneSamples(0.3, sr, (t, p) => {
+      const freq = p < 0.48 ? 392 : 587.33;
+      const env = Math.exp(-p * 3.8);
+      return Math.sin(2 * Math.PI * freq * t) * env * 0.34;
+    });
+
+    const splashSamples = createToneSamples(0.32, sr, (_t, p) => {
+      const env = Math.sin(Math.PI * Math.min(1, p * 3.2)) * Math.exp(-p * 3.6);
+      const grain = Math.sin(p * 110) * 0.35 + (Math.random() * 2 - 1) * 0.65;
+      return grain * env * 0.34;
+    });
+
     this.hornSound = new Howl({ src: [encodeWavDataUrl(hornSamples, sr)], volume: 0.55 });
     this.jumpSound = new Howl({ src: [encodeWavDataUrl(jumpSamples, sr)], volume: 0.45 });
     this.chimeSound = new Howl({ src: [encodeWavDataUrl(chimeSamples, sr)], volume: 0.5 });
@@ -167,6 +200,10 @@ class SoundEngine {
     this.impactSound = new Howl({ src: [encodeWavDataUrl(impactSamples, sr)], volume: 0.45 });
     this.beepLowSound = new Howl({ src: [encodeWavDataUrl(beepLowSamples, sr)], volume: 0.45 });
     this.beepHighSound = new Howl({ src: [encodeWavDataUrl(beepHighSamples, sr)], volume: 0.5 });
+    this.doubleJumpSound = new Howl({ src: [encodeWavDataUrl(doubleJumpSamples, sr)], volume: 0.48 });
+    this.landSound = new Howl({ src: [encodeWavDataUrl(landSamples, sr)], volume: 0.42 });
+    this.recoverSound = new Howl({ src: [encodeWavDataUrl(recoverSamples, sr)], volume: 0.46 });
+    this.splashSound = new Howl({ src: [encodeWavDataUrl(splashSamples, sr)], volume: 0.44 });
 
     this.applyVolumeLevels();
   }
@@ -412,6 +449,7 @@ class SoundEngine {
     throttleAmt = 0,
     isBraking = false,
     weatherMode: WeatherMode = 'sunny',
+    inWater = false,
   ): void {
     if (!this.enabled || !this.engineOsc || !this.engineGain || !this.engineCtx) return;
     const now = this.engineCtx.currentTime;
@@ -420,11 +458,11 @@ class SoundEngine {
 
     if (this.windFilter) {
       this.windFilter.frequency.setTargetAtTime(
-        weatherMode === 'rain' ? 1280 : weatherMode === 'fog' ? 320 : 380,
+        inWater ? 960 : weatherMode === 'rain' ? 1280 : weatherMode === 'fog' ? 320 : 380,
         now,
-        0.35,
+        0.2,
       );
-      this.windFilter.Q.setTargetAtTime(weatherMode === 'rain' ? 0.65 : 1.1, now, 0.35);
+      this.windFilter.Q.setTargetAtTime(inWater ? 0.55 : weatherMode === 'rain' ? 0.65 : 1.1, now, 0.25);
     }
 
     if (!isPlaying) {
@@ -457,8 +495,9 @@ class SoundEngine {
     const brakingActive = isBraking && speedKmh > 3;
     this.brakeGain?.gain.setTargetAtTime(brakingActive ? 0.038 * Math.min(1, speedKmh / 25) : 0, now, 0.05);
 
-    this.driftGain?.gain.setTargetAtTime(isDrifting ? 0.045 : 0, now, 0.06);
-    this.ambientGain?.gain.setTargetAtTime(weatherWindBase + norm * 0.035, now, 0.15);
+    this.driftGain?.gain.setTargetAtTime(isDrifting && !inWater ? 0.045 : 0, now, 0.06);
+    const waterRooster = inWater ? norm * 0.048 : 0;
+    this.ambientGain?.gain.setTargetAtTime(weatherWindBase + norm * 0.035 + waterRooster, now, 0.12);
   }
 
   playHorn(): void {
@@ -471,6 +510,36 @@ class SoundEngine {
     if (!this.enabled) return;
     this.initSounds();
     this.jumpSound?.play();
+  }
+
+  playDoubleJump(): void {
+    if (!this.enabled) return;
+    this.initSounds();
+    this.doubleJumpSound?.play();
+  }
+
+  playLand(intensity = 0.5): void {
+    if (!this.enabled) return;
+    this.initSounds();
+    if (this.landSound) {
+      this.landSound.volume(Math.min(0.55, Math.max(0.14, intensity * 0.42)));
+      this.landSound.play();
+    }
+  }
+
+  playRecover(): void {
+    if (!this.enabled) return;
+    this.initSounds();
+    this.recoverSound?.play();
+  }
+
+  playWaterSplash(entering = true): void {
+    if (!this.enabled) return;
+    this.initSounds();
+    if (this.splashSound) {
+      this.splashSound.volume(entering ? 0.44 : 0.28);
+      this.splashSound.play();
+    }
   }
 
   playChime(): void {

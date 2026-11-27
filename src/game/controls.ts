@@ -13,6 +13,7 @@ export interface ActionCallbacks {
   onInteract: () => void;
   onToggleMap: () => void;
   onRespawn: () => void;
+  onRecover: () => void;
   onHorn: () => void;
   onToggleHeadlights: () => void;
   onTogglePhotoMode: () => void;
@@ -121,6 +122,7 @@ export class GameControls {
       if (code === 'Enter' || code === 'KeyE') this.callbacks.onInteract();
       if (code === 'KeyM') this.callbacks.onToggleMap();
       if (code === 'KeyR') this.callbacks.onRespawn();
+      if (code === 'KeyF') this.callbacks.onRecover();
       if (code === 'KeyH') this.callbacks.onHorn();
       if (code === 'KeyL') this.callbacks.onToggleHeadlights();
       if (code === 'KeyC') this.callbacks.onCycleCamera();
@@ -221,6 +223,7 @@ export class GameControls {
     if (this.justPressedGamepad(pad, 4)) this.callbacks.onCycleCamera(); // LB
     if (this.justPressedGamepad(pad, 8)) this.callbacks.onToggleMap(); // View / Back
     if (this.justPressedGamepad(pad, 9)) this.callbacks.onTogglePause(); // Start / Menu
+    if (this.justPressedGamepad(pad, 10)) this.callbacks.onRecover(); // LS click
 
     return { throttle, steer, brake, handbrake, boost, jump };
   }
@@ -266,10 +269,10 @@ export class GameControls {
       this.touchState.boost ||
       gp.boost;
 
-    const jump = this.jumpQueued || this.touchState.jumpQueued || gp.jump;
+    const jumpJustPressed = this.jumpQueued || this.touchState.jumpQueued || gp.jump;
     this.jumpQueued = false;
     this.touchState.jumpQueued = false;
 
-    return { throttle, steer, boost, brake, handbrake, jump };
+    return { throttle, steer, boost, brake, handbrake, jump: jumpJustPressed, jumpJustPressed };
   }
 }
