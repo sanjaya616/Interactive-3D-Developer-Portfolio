@@ -53,6 +53,9 @@ export const DEFAULT_SETTINGS: GameSettings = {
   ghostEnabled: true,
   headlightsOn: true,
   reducedMotion: false,
+  assistLevel: 'normal',
+  dayNightCycle: false,
+  audioCaptions: false,
 };
 
 export const DEFAULT_VEHICLE: VehicleConfig = {
@@ -185,9 +188,17 @@ export function parseVersionedSave(raw: string | null | undefined): VersionedSav
       rawSettings.weatherMode === 'sunset' ||
       rawSettings.weatherMode === 'night' ||
       rawSettings.weatherMode === 'rain' ||
-      rawSettings.weatherMode === 'fog'
+      rawSettings.weatherMode === 'fog' ||
+      rawSettings.weatherMode === 'storm' ||
+      rawSettings.weatherMode === 'clear'
         ? rawSettings.weatherMode
         : base.settings.weatherMode;
+    const validAssist =
+      rawSettings.assistLevel === 'easy' ||
+      rawSettings.assistLevel === 'normal' ||
+      rawSettings.assistLevel === 'pro'
+        ? rawSettings.assistLevel
+        : 'normal';
     const validWind =
       rawSettings.windMode === 'auto' ||
       rawSettings.windMode === 'calm' ||
@@ -264,6 +275,9 @@ export function parseVersionedSave(raw: string | null | undefined): VersionedSav
         ghostEnabled: typeof rawSettings.ghostEnabled === 'boolean' ? rawSettings.ghostEnabled : base.settings.ghostEnabled,
         headlightsOn: typeof rawSettings.headlightsOn === 'boolean' ? rawSettings.headlightsOn : base.settings.headlightsOn,
         reducedMotion: typeof rawSettings.reducedMotion === 'boolean' ? rawSettings.reducedMotion : base.settings.reducedMotion,
+        assistLevel: validAssist,
+        dayNightCycle: typeof rawSettings.dayNightCycle === 'boolean' ? rawSettings.dayNightCycle : false,
+        audioCaptions: typeof rawSettings.audioCaptions === 'boolean' ? rawSettings.audioCaptions : false,
       },
       vehicle: {
         chassisType: validChassis,

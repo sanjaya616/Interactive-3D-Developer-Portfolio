@@ -1,26 +1,34 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { DOUBLE_JUMP_PLATFORMS, LAGOON_RUN_OBSTACLES } from '../data/portfolioData';
-import type { VehicleConfig, WaterDriveState } from '../types/portfolio';
+import type { DrivingAssistLevel, VehicleConfig, WaterDriveState } from '../types/portfolio';
 import {
   computeBridgeSurfaceY,
   computeDrivingParamsForVehicle,
+  computeEngineTorqueAndGear,
   computeGroundHeight,
+  computeNearestRoadRescuePose,
+  computePacejkaTyreForces,
   computeSafeRecoveryPose,
   createInitialDoubleJumpState,
   createInitialDriftScoreState,
   evaluateWaterPhysics,
+  getAssistProfile,
   getBridgeColliderSegments,
+  getSurfaceGripFactor,
   isVehicleOverturned,
+  sampleSurfaceType,
   stepDoubleJumpState,
   stepDriftScoring,
   stepPlanarDriving,
   type DoubleJumpState,
   type DriftScoreState,
   type DrivingDynamicsParams,
+  type SurfaceType,
   type VehicleInputIntent,
 } from './physicsMath';
 import { computeWaterShoreDepth, WATER_BASE_Y } from './waterWaveMath';
+import { TERRAIN_CELLS, TERRAIN_SPAN, WORLD_HALF_SPAN } from './worldConstants';
 import type { DynamicPropDef, StaticBoxColliderDef } from './worldEnvironment';
 
 let rapierInitPromise: Promise<void> | null = null;
@@ -58,6 +66,7 @@ export interface PhysicsStepOutput {
   justJumped: boolean;
   justDoubleJumped: boolean;
   justRecovered: boolean;
+  justFreed: boolean;
   justEnteredWater: boolean;
   justExitedWater: boolean;
   justRescuedDeepWater: boolean;
@@ -68,6 +77,8 @@ export interface PhysicsStepOutput {
   position: THREE.Vector3;
   quaternion: THREE.Quaternion;
 }
+
+const FIXED_SUBSTEP_DT = 1 / 120;
 
 export class RapierVehiclePhysics {
   world: RAPIER.World;
@@ -92,14 +103,27 @@ export class RapierVehiclePhysics {
   waterSplashIntensity = 0;
   distanceDriven = 0;
   wheelCompressions: [number, number, number, number] = [0.5, 0.5, 0.5, 0.5];
+  gear = 1;
+  rpm = 950;
+  surfaceType: SurfaceType = 'asphalt';
+  boundaryDistMeters = WORLD_HALF_SPAN;
+  driftHint = '';
 
   private dynamics: DrivingDynamicsParams;
+  private assistLevel: DrivingAssistLevel = 'normal';
+  private wetness = 0;
   private staticColliders: StaticBoxColliderDef[];
   private prevX = 0;
   private prevZ = 5.5;
   private prevPlanarSpeed = 0;
   private wasGrounded = true;
   private yaw = 0;
+  private stuckSec = 0;
+  private physAccum = 0;
+  private prevRenderPos = new THREE.Vector3(0, 0.34, 5.5);
+  private curRenderPos = new THREE.Vector3(0, 0.34, 5.5);
+  private prevRenderQuat = new THREE.Quaternion();
+  private curRenderQuat = new THREE.Quaternion();
   private doubleJumpState: DoubleJumpState = createInitialDoubleJumpState();
   private driftScoreState: DriftScoreState = createInitialDriftScoreState();
 
@@ -111,11 +135,12 @@ export class RapierVehiclePhysics {
     this.staticColliders = staticColliders;
     this.dynamics = computeDrivingParamsForVehicle(initialVehicle);
     this.world = new RAPIER.World({ x: 0, y: -19.6, z: 0 });
+    this.world.timestep = FIXED_SUBSTEP_DT;
 
-    // 1. Sculpted terrain heightfield collider spanning 340m x 340m across all 8 districts
-    const nrows = 128;
-    const ncols = 128;
-    const span = 340;
+    // 1. Sculpted terrain heightfield collider synced 1:1 with TERRAIN_SPAN (360m) & TERRAIN_CELLS (180x180, 2m grid)
+    const nrows = TERRAIN_CELLS;
+    const ncols = TERRAIN_CELLS;
+    const span = TERRAIN_SPAN;
     const heights = new Float32Array((nrows + 1) * (ncols + 1));
     for (let col = 0; col <= ncols; col++) {
       const x = -span / 2 + (col / ncols) * span;
@@ -135,6 +160,24 @@ export class RapierVehiclePhysics {
       .setFriction(0.62)
       .setRestitution(0.05);
     this.world.createCollider(terrainCollider, groundBody);
+
+    // 1B. Continuous fixed perimeter barrier walls at ±WORLD_HALF_SPAN (replaces silent boundary teleport)
+    const wallHalf = 0.9;
+    const wallSpan = WORLD_HALF_SPAN + wallHalf * 2;
+    const wallOffset = WORLD_HALF_SPAN + wallHalf;
+    const wallPositions: [number, number, number, number][] = [
+      [0, -wallOffset, wallSpan, wallHalf], // North wall
+      [0, wallOffset, wallSpan, wallHalf],  // South wall
+      [-wallOffset, 0, wallHalf, wallSpan], // West wall
+      [wallOffset, 0, wallHalf, wallSpan],  // East wall
+    ];
+    for (const [wx, wz, hx, hz] of wallPositions) {
+      const wb = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(wx, 4.5, wz));
+      this.world.createCollider(
+        RAPIER.ColliderDesc.cuboid(hx, 6.5, hz).setFriction(0.05).setRestitution(0.18),
+        wb,
+      );
+    }
 
     // Arched bridge deck chord colliders
     const bridgeBody = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
@@ -212,10 +255,10 @@ export class RapierVehiclePhysics {
       .setCcdEnabled(true);
     this.chassisBody = this.world.createRigidBody(chassisDesc);
 
-    const chassisCol = RAPIER.ColliderDesc.cuboid(0.95, 0.55, 1.7)
+    const chassisCol = RAPIER.ColliderDesc.roundCuboid(0.83, 0.43, 1.58, 0.12)
       .setMass(12)
       .setFriction(0.14)
-      .setRestitution(0.2);
+      .setRestitution(0.18);
     this.world.createCollider(chassisCol, this.chassisBody);
 
     this.prevX = 0;
@@ -224,6 +267,14 @@ export class RapierVehiclePhysics {
 
   updateVehicleUpgrades(config: VehicleConfig): void {
     this.dynamics = computeDrivingParamsForVehicle(config);
+  }
+
+  setAssistLevel(level: DrivingAssistLevel): void {
+    this.assistLevel = level;
+  }
+
+  setWetness(wetness: number): void {
+    this.wetness = THREE.MathUtils.clamp(wetness, 0, 1);
   }
 
   private sampleSurfaceY(x: number, z: number, currentBottomY?: number): number {
@@ -278,6 +329,11 @@ export class RapierVehiclePhysics {
     this.driftActiveScore = 0;
     this.prevX = pose.x;
     this.prevZ = pose.z;
+    this.prevRenderPos.set(pose.x, pose.y - 0.56, pose.z);
+    this.curRenderPos.copy(this.prevRenderPos);
+    this.prevRenderQuat.copy(_quat);
+    this.curRenderQuat.copy(_quat);
+    this.stuckSec = 0;
     return pose;
   }
 
@@ -303,6 +359,11 @@ export class RapierVehiclePhysics {
     this.waterState = 'dry';
     this.prevX = 0;
     this.prevZ = 5.5;
+    this.prevRenderPos.set(0, 0.54, 5.5);
+    this.curRenderPos.copy(this.prevRenderPos);
+    this.prevRenderQuat.identity();
+    this.curRenderQuat.identity();
+    this.stuckSec = 0;
   }
 
   teleportTo(x: number, z: number, facingYaw = 0): void {
@@ -322,6 +383,11 @@ export class RapierVehiclePhysics {
     this.jumpsRemaining = 2;
     this.prevX = x;
     this.prevZ = z;
+    this.prevRenderPos.set(x, sy + 0.44, z);
+    this.curRenderPos.copy(this.prevRenderPos);
+    this.prevRenderQuat.copy(_quat);
+    this.curRenderQuat.copy(_quat);
+    this.stuckSec = 0;
   }
 
   step(intent: VehicleInputIntent, dt: number): PhysicsStepOutput {
@@ -372,6 +438,34 @@ export class RapierVehiclePhysics {
       ? { throttle: 0, steer: 0, brake: false, handbrake: false, boost: false, jump: false, jumpJustPressed: false }
       : intent;
 
+    // Surface classification, grip & assist modifiers + Pacejka slip & 5-gear torque
+    this.surfaceType = sampleSurfaceType(pos.x, pos.z, shoreDepth, onElevatedBridge);
+    const gripMu = getSurfaceGripFactor(this.surfaceType, this.wetness);
+    const assist = getAssistProfile(this.assistLevel);
+    const engineInfo = computeEngineTorqueAndGear(
+      currentFwd,
+      effectiveIntent.throttle,
+      this.dynamics.maxForwardSpeed,
+    );
+    this.gear = engineInfo.gear;
+    this.rpm = engineInfo.rpm;
+
+    const slipAngleRad = Math.atan2(currentLat, Math.max(1.2, Math.abs(currentFwd)));
+    const tyreForces = computePacejkaTyreForces({
+      slipAngleRad,
+      normalLoadN: 11800,
+      gripMu,
+      handbrake: Boolean(effectiveIntent.handbrake),
+    });
+
+    const surfaceTunedParams: DrivingDynamicsParams = {
+      ...this.dynamics,
+      engineAccel: this.dynamics.engineAccel * engineInfo.torqueFactor * (0.72 + gripMu * 0.28),
+      lateralGrip: this.dynamics.lateralGrip * gripMu * assist.lateralAssist,
+      driftGrip: this.dynamics.driftGrip * (0.7 + gripMu * 0.3) * (1 - assist.spinDamping * 0.25),
+      maxSteerRate: this.dynamics.maxSteerRate * assist.maxSteerScale,
+    };
+
     const stepRes = stepPlanarDriving(
       {
         forwardSpeed: currentFwd,
@@ -379,11 +473,11 @@ export class RapierVehiclePhysics {
         boostCharge: this.boostCharge,
         isGrounded: this.isGrounded,
         waterDragScale: waterSample.waterDragScale,
-        waterGripScale: waterSample.waterGripScale,
+        waterGripScale: waterSample.waterGripScale * Math.min(1.1, Math.max(0.55, tyreForces.longitudinalCapacityFactor + 0.3)),
       },
       effectiveIntent,
       dt,
-      this.dynamics,
+      surfaceTunedParams,
     );
 
     this.forwardSpeed = stepRes.nextForwardSpeed;
@@ -391,6 +485,12 @@ export class RapierVehiclePhysics {
     this.boostCharge = stepRes.nextBoostCharge;
     this.isBoosting = stepRes.isBoosting;
     this.isDrifting = stepRes.isDrifting;
+    this.driftHint =
+      this.isDrifting
+        ? Math.abs(this.lateralSpeed) > 6.5
+          ? 'Counter-steer to hold the line'
+          : 'Great drift! Tap Shift on exit'
+        : '';
     if (!this.isOverturned) {
       this.yaw += stepRes.yawDelta;
     }
@@ -446,7 +546,6 @@ export class RapierVehiclePhysics {
       const targetLocalPitch = intent.throttle * 1.95;
       const targetLocalRoll = -intent.steer * 1.65;
       _euler.setFromQuaternion(_bodyQuat, 'YXZ');
-      // Apply smooth air pitch/roll nudges
       this.chassisBody.setAngvel(
         {
           x: THREE.MathUtils.clamp(av.x + (_forward.z * -targetLocalPitch + _right.z * targetLocalRoll) * dt * 2.5, -3.8, 3.8),
@@ -457,15 +556,18 @@ export class RapierVehiclePhysics {
       );
     }
 
-    // Clamp vehicle inside the 156m outer boundary across all 8 districts
-    if (Math.abs(pos.x) > 156 || Math.abs(pos.z) > 156) {
-      const clampedX = THREE.MathUtils.clamp(pos.x, -155, 155);
-      const clampedZ = THREE.MathUtils.clamp(pos.z, -155, 155);
-      this.chassisBody.setTranslation({ x: clampedX, y: pos.y, z: clampedZ }, true);
+    // Fixed 1/120 Hz sub-step accumulator + pose interpolation
+    this.physAccum = Math.min(this.physAccum + dt, FIXED_SUBSTEP_DT * 6);
+    while (this.physAccum >= FIXED_SUBSTEP_DT) {
+      this.prevRenderPos.copy(this.curRenderPos);
+      this.prevRenderQuat.copy(this.curRenderQuat);
+      this.world.step();
+      const sp = this.chassisBody.translation();
+      const sr = this.chassisBody.rotation();
+      this.curRenderPos.set(sp.x, sp.y - 0.56, sp.z);
+      this.curRenderQuat.set(sr.x, sr.y, sr.z, sr.w);
+      this.physAccum -= FIXED_SUBSTEP_DT;
     }
-
-    this.world.timestep = Math.min(dt, 0.033);
-    this.world.step();
 
     const nextPos = this.chassisBody.translation();
     const postVel = this.chassisBody.linvel();
@@ -473,9 +575,14 @@ export class RapierVehiclePhysics {
     _bodyQuat.set(postRot.x, postRot.y, postRot.z, postRot.w);
     _localUp.set(0, 1, 0).applyQuaternion(_bodyQuat);
 
+    this.boundaryDistMeters = Math.max(
+      0,
+      Number((WORLD_HALF_SPAN - Math.max(Math.abs(nextPos.x), Math.abs(nextPos.z))).toFixed(1)),
+    );
+
     const actualPlanarSpeed = Math.hypot(postVel.x, postVel.z);
 
-    // Collision impulse detection
+    // Natural collision impulse detection (organic Rapier impact response, no forced tumble kick)
     const speedDrop = this.prevPlanarSpeed - actualPlanarSpeed;
     const blockedDrop = commandedPlanarSpeed - actualPlanarSpeed;
     const collisionImpact =
@@ -484,27 +591,33 @@ export class RapierVehiclePhysics {
         : 0;
     this.prevPlanarSpeed = actualPlanarSpeed;
 
-    // Hard skewed impact induces genuine rotational tumble impulse!
-    if (collisionImpact > 0.55) {
-      const av = this.chassisBody.angvel();
-      const sideKick = (Math.abs(currentLat) > 2.5 ? Math.sign(currentLat) : 1) * collisionImpact * 2.8;
-      this.chassisBody.setAngvel(
-        {
-          x: av.x + (_right.x * sideKick + _forward.x * collisionImpact * 1.4),
-          y: av.y,
-          z: av.z + (_right.z * sideKick + _forward.z * collisionImpact * 1.4),
-        },
-        true,
-      );
-    }
-
-    // Prevent sinking below terrain/bridge deck (respecting elevated platforms)
+    // Emergency deep-void fallback net (>2.2m below terrain surface)
     const minGroundY = this.sampleSurfaceY(nextPos.x, nextPos.z, nextPos.y - 0.56) + 0.56;
-    if (nextPos.y < minGroundY) {
-      this.chassisBody.setTranslation({ x: nextPos.x, y: minGroundY, z: nextPos.z }, true);
+    if (nextPos.y < minGroundY - 2.2) {
+      this.chassisBody.setTranslation({ x: nextPos.x, y: minGroundY + 0.25, z: nextPos.z }, true);
       if (postVel.y < 0) {
         this.chassisBody.setLinvel({ x: postVel.x, y: 0, z: postVel.z }, true);
       }
+    }
+
+    // Auto-stuck detection & nearest-road rescue ("Freed" after >2.0s wedged under throttle)
+    let justFreed = false;
+    if (
+      !this.isOverturned &&
+      !intent.brake &&
+      Math.abs(intent.throttle) > 0.45 &&
+      actualPlanarSpeed < 0.85 &&
+      commandedPlanarSpeed > 3.0
+    ) {
+      this.stuckSec += dt;
+      if (this.stuckSec >= 2.0) {
+        this.stuckSec = 0;
+        const rescue = computeNearestRoadRescuePose(nextPos.x, nextPos.z);
+        this.teleportTo(rescue.x, rescue.z, rescue.yaw);
+        justFreed = true;
+      }
+    } else {
+      this.stuckSec = 0;
     }
 
     // Drift scoring update
@@ -604,8 +717,15 @@ export class RapierVehiclePhysics {
       db.mesh.quaternion.set(r.x, r.y, r.z, r.w);
     }
 
-    _outPos.set(finalPos.x, finalPos.y - 0.56, finalPos.z);
-    _outQuat.copy(_bodyQuat);
+    const alpha = THREE.MathUtils.clamp(this.physAccum / FIXED_SUBSTEP_DT, 0, 1);
+    if (justFreed || justRecovered) {
+      _outPos.set(finalPos.x, finalPos.y - 0.56, finalPos.z);
+      _outQuat.copy(_bodyQuat);
+    } else {
+      _outPos.lerpVectors(this.prevRenderPos, this.curRenderPos, alpha);
+      _outPos.set(finalPos.x, _outPos.y * 0.35 + (finalPos.y - 0.56) * 0.65, finalPos.z);
+      _outQuat.slerpQuaternions(this.prevRenderQuat, _bodyQuat, 0.75);
+    }
 
     return {
       justLanded,
@@ -613,6 +733,7 @@ export class RapierVehiclePhysics {
       justJumped,
       justDoubleJumped,
       justRecovered,
+      justFreed,
       justEnteredWater,
       justExitedWater,
       justRescuedDeepWater,

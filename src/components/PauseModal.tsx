@@ -26,6 +26,7 @@ import { buildMissionJournal, type MissionSectionId } from '../game/progression'
 import { useAppState } from '../state/AppStateContext';
 import type {
   ActiveChallengeHud,
+  DrivingAssistLevel,
   GameSettings,
   QualityLevel,
   WindMode,
@@ -287,7 +288,43 @@ export const PauseModal: React.FC<PauseModalProps> = ({
               </div>
             </div>
 
+            <div>
+              <div className="flex items-center justify-between text-xs font-extrabold text-[#26211E] mb-1.5">
+                <span className="flex items-center gap-1.5">
+                  <Navigation className="w-3.5 h-3.5 text-[#21968B]" />
+                  <span>DRIVING ASSIST</span>
+                </span>
+                <span className="text-[10px] font-bold text-[#61564E]">
+                  Stability &amp; Corner Grip
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {(['easy', 'normal', 'pro'] as DrivingAssistLevel[]).map((lvl) => (
+                  <button
+                    key={lvl}
+                    type="button"
+                    onClick={() => onUpdateSettings({ assistLevel: lvl })}
+                    className={`py-2 rounded-lg text-xs font-extrabold capitalize border cursor-pointer transition-colors ${
+                      (settings.assistLevel ?? 'normal') === lvl
+                        ? 'bg-[#21968B] text-[#FFF9F0] border-[#26211E]'
+                        : 'bg-[#FFF9F0] text-[#26211E] border-[#D9C3A3] hover:border-[#26211E]'
+                    }`}
+                  >
+                    {lvl}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="space-y-2 pt-1">
+              <ToggleSwitch
+                checked={Boolean(settings.dayNightCycle)}
+                label="Dynamic Day-Night Cycle"
+                description="Automatically progresses sunlight through golden dusk & night"
+                icon={<CloudSun className="w-4 h-4 text-[#EC6D2C]" />}
+                accent="amber"
+                onChange={(next) => onUpdateSettings({ dayNightCycle: next })}
+              />
               <ToggleSwitch
                 checked={settings.headlightsOn}
                 label="Vehicle Headlights"
@@ -335,6 +372,14 @@ export const PauseModal: React.FC<PauseModalProps> = ({
                 icon={<Music className="w-4 h-4 text-[#EC6D2C]" />}
                 accent="orange"
                 onChange={(next) => onUpdateSettings({ musicEnabled: next })}
+              />
+              <ToggleSwitch
+                checked={Boolean(settings.audioCaptions)}
+                label="Audio Captions"
+                description="Display on-screen live captions for engine & world sound cues"
+                icon={<Accessibility className="w-4 h-4 text-[#5E915E]" />}
+                accent="sage"
+                onChange={(next) => onUpdateSettings({ audioCaptions: next })}
               />
             </div>
 
@@ -650,6 +695,21 @@ export const PauseModal: React.FC<PauseModalProps> = ({
                   </button>
                 </form>
               )}
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-[#FFF9F0] border border-[#D9C3A3] space-y-2">
+              <div className="text-xs font-extrabold text-[#26211E]">CONTROLS REFERENCE</div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] font-semibold text-[#61564E]">
+                <span><strong className="text-[#26211E]">WASD / Arrows</strong>: Drive</span>
+                <span><strong className="text-[#26211E]">Shift</strong>: Nitro Boost</span>
+                <span><strong className="text-[#26211E]">Space (x2)</strong>: Double Jump</span>
+                <span><strong className="text-[#26211E]">X</strong>: Handbrake Drift</span>
+                <span><strong className="text-[#26211E]">F / R</strong>: Flip / Respawn</span>
+                <span><strong className="text-[#26211E]">M / C / L / P</strong>: Map, Cam, Lights, Photo</span>
+              </div>
+              <p className="text-[10px] font-bold text-[#61564E]">
+                Supports standard USB/Bluetooth gamepads and on-screen touch pedals.
+              </p>
             </div>
           </div>
         )}

@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { ALLOWED_COUNTRY_CODES } from '../data/countries.ts';
 import { PADDOCK_CHECKPOINTS } from '../data/portfolioData.ts';
+import { PADDOCK_CENTER } from '../game/worldConstants.ts';
 import type { GhostSample, VehicleChassisType } from '../types/portfolio.ts';
 
 export const WHISPER_MAX_LENGTH = 30;
@@ -197,13 +198,13 @@ export function verifyRaceTelemetry(
     frames.push(f as GhostSample);
   }
 
-  // Verify start and finish proximity to The Paddock gantry (-66, 18)
+  // Verify start and finish proximity to The Paddock gantry
   const first = frames[0];
   const last = frames[frames.length - 1];
-  if (Math.hypot(first.x + 66, first.z - 18) > 20) {
+  if (Math.hypot(first.x - PADDOCK_CENTER.x, first.z - PADDOCK_CENTER.z) > 20) {
     return { ok: false, error: 'Lap did not start at The Paddock starting gantry.' };
   }
-  if (Math.hypot(last.x + 66, last.z - 18) > 16) {
+  if (Math.hypot(last.x - PADDOCK_CENTER.x, last.z - PADDOCK_CENTER.z) > 16) {
     return { ok: false, error: 'Lap did not finish at The Paddock finish gantry.' };
   }
 

@@ -12,6 +12,7 @@ export interface VegetationSystemResult {
   staticColliders: StaticTreeCollider[];
   setWindProfile: (weather: WeatherMode, windMode: WindMode) => void;
   setPerformanceProfile: (quality: QualityLevel, reducedMotion: boolean) => void;
+  setCameraPosition: (x: number, z: number) => void;
   update: (motionTime: number, dt: number) => void;
 }
 
@@ -735,6 +736,7 @@ interface VegUniformSet {
   uDetailAmp: { value: number };
   uWindDetail: { value: number };
   uWindDir: { value: THREE.Vector2 };
+  uCamXZ: { value: THREE.Vector2 };
 }
 
 function attachVegetationWindShader(
@@ -760,6 +762,7 @@ function attachVegetationWindShader(
     shader.uniforms.uDetailAmp = sharedUniforms.uDetailAmp;
     shader.uniforms.uWindDetail = sharedUniforms.uWindDetail;
     shader.uniforms.uWindDir = sharedUniforms.uWindDir;
+    shader.uniforms.uCamXZ = sharedUniforms.uCamXZ;
 
     shader.vertexShader = `
       attribute vec3 aSwayData;
@@ -773,6 +776,7 @@ function attachVegetationWindShader(
       uniform float uDetailAmp;
       uniform float uWindDetail;
       uniform vec2 uWindDir;
+      uniform vec2 uCamXZ;
       varying float vVegPart;
       varying float vVegHeight;
       varying float vVegFlutter;
@@ -812,12 +816,14 @@ function attachVegetationWindShader(
        vec2 vegBendXZ = (uWindDir * ((0.52 + 0.48 * vegTrunkOsc) * vegGustFactor) + vegCrossDir * (0.28 * cos(uWindTime * 1.1 + aInstWind.x)))
          * (uTrunkAmp * ${config.trunkWeightScale.toFixed(3)} * vegBendWeight * vegInstAmp * uWindStrength);
 
+       // 2-LOD distance detail: attenuate high-frequency leaf flutter past 55m
+       float vegLodDetail = smoothstep(82.0, 48.0, length(vegWorldXZ - uCamXZ));
        // Secondary leaf cluster / palm frond / petal flutter
-       float vegFlutOsc = uWindDetail > 0.5
+       float vegFlutOsc = (uWindDetail > 0.5 && vegLodDetail > 0.02)
          ? sin(uWindTime * (2.65 * uGustFreq) + aInstWind.x + aSwayData.z)
          : 0.0;
        vec2 vegFlutterXZ = (uWindDir * vegFlutOsc + vegCrossDir * cos(uWindTime * 2.15 + aSwayData.z * 1.7 + aInstWind.x))
-         * (uDetailAmp * ${config.flutterWeightScale.toFixed(3)} * aSwayData.y * vegRootLock * vegInstAmp * vegGustFactor * uWindStrength);
+         * (uDetailAmp * ${config.flutterWeightScale.toFixed(3)} * aSwayData.y * vegRootLock * vegInstAmp * vegGustFactor * uWindStrength * vegLodDetail);
 
        // Static natural botanical lean
        vec2 vegStaticLean = aInstWind.zw * (vegBendWeight * 0.35);
@@ -961,6 +967,7 @@ export function createVegetationSystem(
     uDetailAmp: { value: 0.088 },
     uWindDetail: { value: 2.0 },
     uWindDir: { value: new THREE.Vector2(0.82, 0.57) },
+    uCamXZ: { value: new THREE.Vector2(0, 12) },
   };
 
   // Sculpted reusable geometries per species
@@ -1340,6 +1347,9 @@ export function createVegetationSystem(
     staticColliders: layout.staticColliders,
     setWindProfile,
     setPerformanceProfile,
+    setCameraPosition: (x: number, z: number) => {
+      sharedUniforms.uCamXZ.value.set(x, z);
+    },
     update,
   };
 }

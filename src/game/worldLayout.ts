@@ -31,9 +31,34 @@ import {
   DOUBLE_JUMP_PLATFORMS,
 } from '../data/portfolioData';
 import { FOREST_BROOK_BRIDGE } from './physicsMath';
+import {
+  PADDOCK_CENTER,
+  PADDOCK_ENTRY_POS,
+  PADDOCK_TRACK_DEF,
+  PLAZA_RADIUS,
+  RING_ROAD_DEF,
+  ROAD_JUNCTION_DISCS,
+  ROAD_SEGMENTS,
+  WEST_RIDGE_TUNNEL_DEF,
+  WORLD_HALF_SPAN,
+} from './worldConstants';
+import type { JunctionDiscDef, RoadSegmentDef } from './worldConstants';
 
-export const WORLD_PLAYABLE_HALF_SPAN = 158;
-export const WORLD_MAP_HALF_SPAN = 166;
+export {
+  PADDOCK_CENTER,
+  PADDOCK_ENTRY_POS,
+  PADDOCK_TRACK_DEF,
+  PLAZA_RADIUS,
+  RING_ROAD_DEF,
+  ROAD_JUNCTION_DISCS,
+  ROAD_SEGMENTS,
+  WEST_RIDGE_TUNNEL_DEF,
+  WORLD_HALF_SPAN,
+};
+export type { JunctionDiscDef, RoadSegmentDef };
+
+export const WORLD_PLAYABLE_HALF_SPAN = WORLD_HALF_SPAN;
+export const WORLD_MAP_HALF_SPAN = WORLD_HALF_SPAN + 8;
 
 export type DistrictId =
   | 'central'
@@ -202,65 +227,6 @@ export function getDistrictForPoint(x: number, z: number): DistrictDef {
   return WORLD_DISTRICTS[4];
 }
 
-export interface RoadSegmentDef {
-  id: string;
-  label: string;
-  x1: number;
-  z1: number;
-  x2: number;
-  z2: number;
-  width: number;
-  surface: 'asphalt' | 'gravel' | 'ramp';
-  addCurbs: boolean;
-  startNode: string;
-  endNode: string;
-}
-
-export const PLAZA_RADIUS = 13.65;
-export const RING_ROAD_DEF = {
-  radius: 34.0,
-  width: 5.2,
-  halfWidth: 2.6,
-  curbWidth: 0.28,
-} as const;
-
-export const PADDOCK_TRACK_DEF = {
-  centerX: -66,
-  centerZ: 18,
-  radius: 18.0,
-  innerRadius: 15.4,
-  outerRadius: 20.6,
-  outerCurbRadius: 20.92,
-  width: 5.2,
-} as const;
-
-/**
- * West Ridge Tunnel: centered cleanly on the Paddock approach spoke between
- * Ring Road outer curb (~-37.0, -0.1) and Paddock Track outer curb (~-48.3, 6.9).
- */
-const PADDOCK_SPOKE_DX = -32;
-const PADDOCK_SPOKE_DZ = 20;
-const PADDOCK_SPOKE_LEN = Math.hypot(PADDOCK_SPOKE_DX, PADDOCK_SPOKE_DZ);
-const PADDOCK_UX = PADDOCK_SPOKE_DX / PADDOCK_SPOKE_LEN;
-const PADDOCK_UZ = PADDOCK_SPOKE_DZ / PADDOCK_SPOKE_LEN;
-const TUNNEL_T_FROM_RING = 10.2;
-
-export const WEST_RIDGE_TUNNEL_DEF = {
-  id: 'west-ridge-tunnel',
-  name: 'West Ridge Tunnel',
-  centerX: -34 + PADDOCK_UX * TUNNEL_T_FROM_RING, // ~ -42.65
-  centerZ: -2 + PADDOCK_UZ * TUNNEL_T_FROM_RING, // ~ 3.41
-  yaw: Math.atan2(PADDOCK_SPOKE_DX, PADDOCK_SPOKE_DZ), // ~ -1.0122 rad
-  length: 10.6,
-  halfLength: 5.3,
-  innerHalfWidth: 4.4,
-  outerHalfWidth: 5.8,
-  wallHalfWidth: 1.0,
-  clearHeight: 7.05,
-  dirX: PADDOCK_UX,
-  dirZ: PADDOCK_UZ,
-} as const;
-
 export const EAST_JETTY_DEF = {
   id: 'east-lagoon-jetty',
   x: 56,
@@ -273,425 +239,6 @@ export const EAST_JETTY_DEF = {
  * Authoritative connected road & trail segments shared 1:1 by 3D mesh builders,
  * vegetation/prop placement exclusions, and the 2D WorldMap / Minimap + routing graph.
  */
-export const ROAD_SEGMENTS: readonly RoadSegmentDef[] = [
-  {
-    id: 'spoke-north',
-    label: 'North Plaza Boulevard',
-    x1: 0,
-    z1: -13.4,
-    x2: 0,
-    z2: -36.5,
-    width: 4.9,
-    surface: 'asphalt',
-    addCurbs: true,
-    startNode: 'plaza-n',
-    endNode: 'ring-n',
-  },
-  {
-    id: 'lookout-ramp',
-    label: 'Lookout Hill Summit Ascent',
-    x1: 0,
-    z1: -36.5,
-    x2: 0,
-    z2: -69.0,
-    width: 5.6,
-    surface: 'ramp',
-    addCurbs: true,
-    startNode: 'ring-n',
-    endNode: 'lm-lookout',
-  },
-  {
-    id: 'spoke-south',
-    label: 'Signal Boulevard',
-    x1: 0,
-    z1: 13.4,
-    x2: 0,
-    z2: 43.0,
-    width: 4.9,
-    surface: 'asphalt',
-    addCurbs: true,
-    startNode: 'plaza-s',
-    endNode: 'lm-signal-house',
-  },
-  {
-    id: 'spoke-studio',
-    label: 'Studio Avenue',
-    x1: -9.5,
-    z1: -9.5,
-    x2: -33.8,
-    z2: -31.9,
-    width: 4.8,
-    surface: 'asphalt',
-    addCurbs: true,
-    startNode: 'plaza-nw',
-    endNode: 'lm-studio',
-  },
-  {
-    id: 'spoke-paddock-approach',
-    label: 'West Tunnel Expressway',
-    x1: -34.0,
-    z1: -2.0,
-    x2: -47.6,
-    z2: 6.5,
-    width: 4.8,
-    surface: 'asphalt',
-    addCurbs: true,
-    startNode: 'ring-w',
-    endNode: 'paddock-entry',
-  },
-  {
-    id: 'spoke-paddock-infield',
-    label: 'Paddock Pit Lane',
-    x1: -47.6,
-    z1: 6.5,
-    x2: -61.5,
-    z2: 15.2,
-    width: 4.8,
-    surface: 'asphalt',
-    addCurbs: false,
-    startNode: 'paddock-entry',
-    endNode: 'lm-paddock',
-  },
-  {
-    id: 'spoke-delivery',
-    label: 'Courier Depot Road',
-    x1: -21.1,
-    z1: 26.7,
-    x2: -36.1,
-    z2: 45.6,
-    width: 4.8,
-    surface: 'asphalt',
-    addCurbs: true,
-    startNode: 'ring-sw',
-    endNode: 'lm-delivery',
-  },
-  {
-    id: 'spoke-workshop',
-    label: 'Workshop Lab Way',
-    x1: 33.7,
-    z1: 4.2,
-    x2: 60.9,
-    z2: 7.6,
-    width: 4.8,
-    surface: 'asphalt',
-    addCurbs: true,
-    startNode: 'ring-e',
-    endNode: 'lm-workshop',
-  },
-  {
-    id: 'spoke-signal-workshop',
-    label: 'Signal Compound Drive',
-    x1: 23.0,
-    z1: 25.1,
-    x2: 41.9,
-    z2: 45.7,
-    width: 4.8,
-    surface: 'asphalt',
-    addCurbs: true,
-    startNode: 'ring-se',
-    endNode: 'lm-signal-workshop',
-  },
-  {
-    id: 'spoke-east-bridge-south',
-    label: 'Lagoon Bridge South Approach',
-    x1: 33.7,
-    z1: 4.2,
-    x2: 40.0,
-    z2: -11.55,
-    width: 4.9,
-    surface: 'asphalt',
-    addCurbs: true,
-    startNode: 'ring-e',
-    endNode: 'bridge-main-s',
-  },
-  {
-    id: 'spoke-pavilion-approach',
-    label: 'Pavilion Terrace Link',
-    x1: 40.0,
-    z1: -32.45,
-    x2: 36.0,
-    z2: -40.8,
-    width: 4.9,
-    surface: 'asphalt',
-    addCurbs: true,
-    startNode: 'bridge-main-n',
-    endNode: 'lm-projects',
-  },
-  {
-    id: 'spoke-query-west-1',
-    label: 'Pavilion West Bypass',
-    x1: 36.0,
-    z1: -40.8,
-    x2: 28.5,
-    z2: -49.0,
-    width: 4.8,
-    surface: 'asphalt',
-    addCurbs: true,
-    startNode: 'lm-projects',
-    endNode: 'pavilion-bypass',
-  },
-  {
-    id: 'spoke-query-west-2',
-    label: 'Query Ridge Causeway',
-    x1: 28.5,
-    z1: -49.0,
-    x2: 37.0,
-    z2: -61.5,
-    width: 4.8,
-    surface: 'asphalt',
-    addCurbs: true,
-    startNode: 'pavilion-bypass',
-    endNode: 'query-gate-entry',
-  },
-  {
-    id: 'spoke-query-west-3',
-    label: 'Query Valley Approach',
-    x1: 37.0,
-    z1: -61.5,
-    x2: 46.2,
-    z2: -70.6,
-    width: 4.8,
-    surface: 'asphalt',
-    addCurbs: true,
-    startNode: 'query-gate-entry',
-    endNode: 'lm-query-valley',
-  },
-  // Hidden Pine Trail (Gravel)
-  {
-    id: 'trail-pine-1',
-    label: 'Hidden Pine Trail',
-    x1: -34.0,
-    z1: -38.0,
-    x2: -28.0,
-    z2: -50.0,
-    width: 3.15,
-    surface: 'gravel',
-    addCurbs: false,
-    startNode: 'lm-studio',
-    endNode: 'pine-1',
-  },
-  {
-    id: 'trail-pine-2',
-    label: 'Hidden Pine Trail',
-    x1: -28.0,
-    z1: -50.0,
-    x2: -22.0,
-    z2: -58.0,
-    width: 3.15,
-    surface: 'gravel',
-    addCurbs: false,
-    startNode: 'pine-1',
-    endNode: 'pine-2',
-  },
-  {
-    id: 'trail-pine-3',
-    label: 'Hidden Pine Trail',
-    x1: -22.0,
-    z1: -58.0,
-    x2: -13.0,
-    z2: -66.0,
-    width: 3.15,
-    surface: 'gravel',
-    addCurbs: false,
-    startNode: 'pine-2',
-    endNode: 'pine-3',
-  },
-  {
-    id: 'trail-pine-4',
-    label: 'Hidden Pine Trail',
-    x1: -13.0,
-    z1: -66.0,
-    x2: -6.0,
-    z2: -70.0,
-    width: 3.15,
-    surface: 'gravel',
-    addCurbs: false,
-    startNode: 'pine-3',
-    endNode: 'lm-lookout',
-  },
-  // South Cove Gravel Trails connecting Delivery Depot <-> Footbridge <-> Signal House
-  {
-    id: 'trail-cove-w1',
-    label: 'South Cove Footpath',
-    x1: -38.0,
-    z1: 48.0,
-    x2: -34.0,
-    z2: 56.0,
-    width: 3.25,
-    surface: 'gravel',
-    addCurbs: false,
-    startNode: 'lm-delivery',
-    endNode: 'cove-w-bend',
-  },
-  {
-    id: 'trail-cove-w2',
-    label: 'South Cove Footpath',
-    x1: -34.0,
-    z1: 56.0,
-    x2: -30.4,
-    z2: 62.0,
-    width: 3.25,
-    surface: 'gravel',
-    addCurbs: false,
-    startNode: 'cove-w-bend',
-    endNode: 'bridge-cove-w',
-  },
-  {
-    id: 'trail-cove-e1',
-    label: 'South Cove Footpath',
-    x1: -5.6,
-    z1: 62.0,
-    x2: -2.5,
-    z2: 55.0,
-    width: 3.25,
-    surface: 'gravel',
-    addCurbs: false,
-    startNode: 'bridge-cove-e',
-    endNode: 'cove-e-bend',
-  },
-  {
-    id: 'trail-cove-e2',
-    label: 'South Cove Footpath',
-    x1: -2.5,
-    z1: 55.0,
-    x2: 0.0,
-    z2: 46.0,
-    width: 3.25,
-    surface: 'gravel',
-    addCurbs: false,
-    startNode: 'cove-e-bend',
-    endNode: 'lm-signal-house',
-  },
-  // Forest Trail District Woodland Loop (from The Studio NW through Timber Brook Bridge)
-  {
-    id: 'trail-forest-entry',
-    label: 'Forest Trail Entrance',
-    x1: -36.0,
-    z1: -34.0,
-    x2: -64.0,
-    z2: -60.0,
-    width: 3.6,
-    surface: 'gravel',
-    addCurbs: false,
-    startNode: 'lm-studio',
-    endNode: 'ft-gate-1',
-  },
-  {
-    id: 'trail-forest-w1',
-    label: 'Forest Trail West Bend',
-    x1: -64.0,
-    z1: -60.0,
-    x2: -88.0,
-    z2: -76.0,
-    width: 3.6,
-    surface: 'gravel',
-    addCurbs: false,
-    startNode: 'ft-gate-1',
-    endNode: 'ft-bend-w',
-  },
-  {
-    id: 'trail-forest-w2',
-    label: 'Brook Bridge East Approach',
-    x1: -88.0,
-    z1: -76.0,
-    x2: -96.5,
-    z2: -84.0,
-    width: 3.6,
-    surface: 'gravel',
-    addCurbs: false,
-    startNode: 'ft-bend-w',
-    endNode: 'ft-bridge-e',
-  },
-  {
-    id: 'trail-forest-n1',
-    label: 'Brook North Woodland Path',
-    x1: -111.5,
-    z1: -84.0,
-    x2: -120.0,
-    z2: -98.0,
-    width: 3.6,
-    surface: 'gravel',
-    addCurbs: false,
-    startNode: 'ft-bridge-w',
-    endNode: 'ft-north',
-  },
-  {
-    id: 'trail-forest-n2',
-    label: 'Pine Overlook Ridge Trail',
-    x1: -120.0,
-    z1: -98.0,
-    x2: -126.0,
-    z2: -68.0,
-    width: 3.6,
-    surface: 'gravel',
-    addCurbs: false,
-    startNode: 'ft-north',
-    endNode: 'ft-overlook',
-  },
-  {
-    id: 'trail-forest-return',
-    label: 'Forest Loop South Return',
-    x1: -126.0,
-    z1: -68.0,
-    x2: -64.0,
-    z2: -60.0,
-    width: 3.6,
-    surface: 'gravel',
-    addCurbs: false,
-    startNode: 'ft-overlook',
-    endNode: 'ft-gate-1',
-  },
-  // Amphibious Lagoon District Approach Road (Delivery Depot -> Lagoon Bank)
-  {
-    id: 'spoke-amphibious-entry',
-    label: 'Amphibious Lagoon Road',
-    x1: -38.0,
-    z1: 48.0,
-    x2: -34.0,
-    z2: 94.0,
-    width: 4.8,
-    surface: 'asphalt',
-    addCurbs: true,
-    startNode: 'lm-delivery',
-    endNode: 'amph-bank-n',
-  },
-  // Stunt & Drift Arena Boulevard (Signal Workshop -> Arena Pad + Drift Loop)
-  {
-    id: 'spoke-stunt-entry',
-    label: 'Stunt Arena Boulevard',
-    x1: 44.0,
-    z1: 48.0,
-    x2: 88.0,
-    z2: 52.0,
-    width: 5.4,
-    surface: 'asphalt',
-    addCurbs: true,
-    startNode: 'lm-signal-workshop',
-    endNode: 'stunt-entry',
-  },
-] as const;
-
-export interface JunctionDiscDef {
-  id: string;
-  x: number;
-  z: number;
-  scale: number;
-}
-
-export const ROAD_JUNCTION_DISCS: readonly JunctionDiscDef[] = [
-  { id: 'junc-ring-n', x: 0, z: -34, scale: 1.05 },
-  { id: 'junc-ring-s', x: 0, z: 34, scale: 1.0 },
-  { id: 'junc-ring-studio', x: -24.9, z: -23.1, scale: 0.95 },
-  { id: 'junc-ring-w', x: -34.0, z: -2.0, scale: 0.98 },
-  { id: 'junc-ring-sw', x: -21.1, z: 26.7, scale: 0.95 },
-  { id: 'junc-ring-e', x: 33.7, z: 4.2, scale: 1.02 },
-  { id: 'junc-ring-se', x: 23.0, z: 25.1, scale: 0.95 },
-  { id: 'junc-pavilion', x: 36.0, z: -40.8, scale: 0.96 },
-  { id: 'junc-pavilion-bypass', x: 28.5, z: -49.0, scale: 0.85 },
-  { id: 'junc-query-entry', x: 37.0, z: -61.5, scale: 0.85 },
-  { id: 'junc-paddock-entry', x: -47.6, z: 6.5, scale: 0.92 },
-] as const;
-
 export interface DirectionalSignDef {
   id: string;
   x: number;
@@ -703,16 +250,16 @@ export interface DirectionalSignDef {
 }
 
 /**
- * Calibrated roadside shoulders with >= 4.2m distance to every road/trail centerline.
+ * Calibrated roadside shoulders with >= 4.2m distance to every road/trail edge and >= 6m to landmark entrances.
  */
 export const DIRECTIONAL_SIGNS: readonly DirectionalSignDef[] = [
-  { id: 'sign-studio', x: -17.8, z: -9.6, label: 'THE STUDIO', arrow: '↖', rotY: -0.6, boundingRadius: 1.45 },
-  { id: 'sign-bridge', x: 18.2, z: -8.6, label: 'LAGOON BRIDGE', arrow: '↗', rotY: 0.6, boundingRadius: 1.45 },
-  { id: 'sign-lookout', x: 5.8, z: -39.5, label: 'LOOKOUT HILL', arrow: '↑', rotY: 0, boundingRadius: 1.45 },
-  { id: 'sign-query-select', x: 43.2, z: -57.5, label: 'SELECT * FROM', arrow: 'VALLEY', rotY: -0.35, boundingRadius: 1.45 },
-  { id: 'sign-query-join', x: 55.2, z: -65.0, label: 'JOIN SKILLS', arrow: 'ON ID', rotY: 0.4, boundingRadius: 1.45 },
-  { id: 'sign-paddock', x: -39.2, z: -6.4, label: 'THE PADDOCK', arrow: '↙', rotY: -0.95, boundingRadius: 1.45 },
-  { id: 'sign-cove', x: -44.5, z: 61.0, label: 'COVE BRIDGE', arrow: '→', rotY: 0.75, boundingRadius: 1.45 },
+  { id: 'sign-studio', x: -18.8, z: -7.6, label: 'THE STUDIO', arrow: '↖', rotY: -0.6, boundingRadius: 1.45 },
+  { id: 'sign-bridge', x: 19.6, z: -6.4, label: 'LAGOON BRIDGE', arrow: '↗', rotY: 0.6, boundingRadius: 1.45 },
+  { id: 'sign-lookout', x: 8.0, z: -42.6, label: 'LOOKOUT HILL', arrow: '↑', rotY: 0, boundingRadius: 1.45 },
+  { id: 'sign-query-select', x: 45.8, z: -55.8, label: 'SELECT * FROM', arrow: 'VALLEY', rotY: -0.35, boundingRadius: 1.45 },
+  { id: 'sign-query-join', x: 57.0, z: -64.2, label: 'JOIN SKILLS', arrow: 'ON ID', rotY: 0.4, boundingRadius: 1.45 },
+  { id: 'sign-paddock', x: -42.8, z: -8.4, label: 'THE PADDOCK', arrow: '↙', rotY: -0.95, boundingRadius: 1.45 },
+  { id: 'sign-cove', x: -45.6, z: 58.2, label: 'COVE BRIDGE', arrow: '→', rotY: 0.75, boundingRadius: 1.45 },
 ] as const;
 
 export interface BuildingPlacementDef {
@@ -727,20 +274,34 @@ export interface BuildingPlacementDef {
   colliderHz: number;
 }
 
+const BUILDING_COORDS_BY_ID: Record<string, { bx: number; bz: number; hx: number; hy: number; hz: number }> = {
+  studio: { bx: -48.5, bz: -31.5, hx: 3.9, hy: 2.7, hz: 3.1 },
+  projects: { bx: 46.5, bz: -45.5, hx: 4.1, hy: 2.8, hz: 3.3 },
+  workshop: { bx: 73.5, bz: 9.0, hx: 3.8, hy: 2.7, hz: 3.2 },
+  lookout: { bx: 0, bz: -81.0, hx: 3.6, hy: 3.4, hz: 3.0 },
+  'signal-house': { bx: 11.5, bz: 47.0, hx: 3.6, hy: 2.9, hz: 3.0 },
+  paddock: { bx: PADDOCK_CENTER.x - 29.5, bz: PADDOCK_CENTER.z, hx: 3.9, hy: 2.6, hz: 3.2 },
+  delivery: { bx: -50.0, bz: 46.5, hx: 4.0, hy: 2.6, hz: 3.1 },
+  'query-valley': { bx: 59.0, bz: -81.0, hx: 3.9, hy: 3.0, hz: 3.1 },
+  'signal-workshop': { bx: 39.0, bz: 59.5, hx: 3.7, hy: 2.6, hz: 3.0 },
+};
+
 export const BUILDING_FOOTPRINTS: readonly BuildingPlacementDef[] = WORLD_LANDMARKS.map((lm) => {
-  const len = Math.hypot(-lm.position.x, -lm.position.z) || 1;
-  const dirX = -lm.position.x / len;
-  const dirZ = -lm.position.z / len;
+  const custom = BUILDING_COORDS_BY_ID[lm.id];
+  const bx = custom?.bx ?? lm.position.x;
+  const bz = custom?.bz ?? lm.position.z;
+  const toPadX = lm.position.x - bx;
+  const toPadZ = lm.position.z - bz;
   return {
     landmarkId: lm.id,
     padX: lm.position.x,
     padZ: lm.position.z,
-    buildX: lm.position.x - dirX * 5.8,
-    buildZ: lm.position.z - dirZ * 5.8,
-    yaw: Math.atan2(dirX, dirZ),
-    colliderHx: 3.6,
-    colliderHy: 2.5,
-    colliderHz: 2.9,
+    buildX: bx,
+    buildZ: bz,
+    yaw: Math.atan2(toPadX, toPadZ),
+    colliderHx: custom?.hx ?? 3.6,
+    colliderHy: custom?.hy ?? 2.6,
+    colliderHz: custom?.hz ?? 3.0,
   };
 });
 
@@ -1011,10 +572,10 @@ const ROAD_GRAPH_NODES: RouteNode[] = [
   { id: 'bridge-main-n', x: 40.0, z: -32.45 },
   { id: 'pavilion-bypass', x: 28.5, z: -49.0 },
   { id: 'query-gate-entry', x: 37.0, z: -61.5 },
-  { id: 'paddock-entry', x: -47.6, z: 6.5 },
-  { id: 'paddock-n', x: -66.0, z: 0.0 },
-  { id: 'paddock-w', x: -84.0, z: 18.0 },
-  { id: 'paddock-s', x: -66.0, z: 36.0 },
+  { id: 'paddock-entry', x: PADDOCK_ENTRY_POS.x, z: PADDOCK_ENTRY_POS.z },
+  { id: 'paddock-n', x: PADDOCK_CENTER.x, z: PADDOCK_CENTER.z - 18.0 },
+  { id: 'paddock-w', x: PADDOCK_CENTER.x - 18.0, z: PADDOCK_CENTER.z },
+  { id: 'paddock-s', x: PADDOCK_CENTER.x, z: PADDOCK_CENTER.z + 18.0 },
   { id: 'pine-1', x: -28.0, z: -50.0 },
   { id: 'pine-2', x: -22.0, z: -58.0 },
   { id: 'pine-3', x: -13.0, z: -66.0 },
@@ -1362,4 +923,143 @@ export function validateWorldLayout(
     signClearances,
     bridgeSeamChecks,
   };
+}
+
+/**
+ * Samples every ROAD_SEGMENT at 1.0m intervals to verify longitudinal grade <= 0.20 m/m
+ * and cross-slope <= 4 degrees.
+ */
+export function getRoadSegmentsMaxSlopes(): {
+  id: string;
+  maxLongitudinalSlope: number;
+  maxLateralSlopeDeg: number;
+}[] {
+  const results: { id: string; maxLongitudinalSlope: number; maxLateralSlopeDeg: number }[] = [];
+  for (const seg of ROAD_SEGMENTS) {
+    const dx = seg.x2 - seg.x1;
+    const dz = seg.z2 - seg.z1;
+    const len = Math.hypot(dx, dz) || 1;
+    const ux = dx / len;
+    const uz = dz / len;
+    const nx = -uz;
+    const nz = ux;
+    const hw = seg.width * 0.45;
+    const steps = Math.max(2, Math.ceil(len));
+    let maxLong = 0;
+    let maxLatDeg = 0;
+    let prevY = computeGroundHeight(seg.x1, seg.z1);
+    for (let i = 1; i <= steps; i++) {
+      const dist = (i / steps) * len;
+      const stepDist = len / steps;
+      const x = seg.x1 + ux * dist;
+      const z = seg.z1 + uz * dist;
+      const y = computeGroundHeight(x, z);
+      const longSlope = Math.abs(y - prevY) / stepDist;
+      if (longSlope > maxLong) maxLong = longSlope;
+      prevY = y;
+
+      const yL = computeGroundHeight(x + nx * hw, z + nz * hw);
+      const yR = computeGroundHeight(x - nx * hw, z - nz * hw);
+      const latDeg = (Math.atan2(Math.abs(yL - yR), hw * 2) * 180) / Math.PI;
+      if (latDeg > maxLatDeg) maxLatDeg = latDeg;
+    }
+    results.push({
+      id: seg.id,
+      maxLongitudinalSlope: Number(maxLong.toFixed(4)),
+      maxLateralSlopeDeg: Number(maxLatDeg.toFixed(2)),
+    });
+  }
+  return results;
+}
+
+/**
+ * Trims a ROAD_SEGMENT parametrically [tStart, tEnd] where it enters Plaza, Ring, Paddock, or Junction Discs
+ * so coplanar road meshes never double-cover the same asphalt patch.
+ */
+export function getTrimmedRoadSegmentRange(seg: RoadSegmentDef): [number, number] {
+  const dx = seg.x2 - seg.x1;
+  const dz = seg.z2 - seg.z1;
+  const len = Math.hypot(dx, dz) || 1;
+  let trimStartM = 0;
+  let trimEndM = 0;
+
+  const isInsideDisc = (x: number, z: number) => {
+    for (const jd of ROAD_JUNCTION_DISCS) {
+      if (Math.hypot(x - jd.x, z - jd.z) <= jd.radius * 0.72) return true;
+    }
+    const r = Math.hypot(x, z);
+    if (r <= PLAZA_RADIUS - 0.15) return true;
+    if (Math.abs(r - RING_ROAD_DEF.radius) <= RING_ROAD_DEF.halfWidth - 0.15) return true;
+    const distPaddock = Math.hypot(x - PADDOCK_CENTER.x, z - PADDOCK_CENTER.z);
+    if (Math.abs(distPaddock - PADDOCK_CENTER.radius) <= PADDOCK_TRACK_DEF.width * 0.5 - 0.15) return true;
+    return false;
+  };
+
+  while (trimStartM < len * 0.4 && isInsideDisc(seg.x1 + (dx / len) * trimStartM, seg.z1 + (dz / len) * trimStartM)) {
+    trimStartM += 0.25;
+  }
+  while (trimEndM < len * 0.4 && isInsideDisc(seg.x2 - (dx / len) * trimEndM, seg.z2 - (dz / len) * trimEndM)) {
+    trimEndM += 0.25;
+  }
+
+  return [
+    Math.min(0.45, trimStartM / len),
+    Math.max(0.55, 1 - trimEndM / len),
+  ];
+}
+
+/**
+ * Detects pairs of rendered trimmed asphalt segments that overlap in XY outside designated junction/ring/plaza discs.
+ */
+export function detectAsphaltOverlapsOutsideJunctions(): { segA: string; segB: string; x: number; z: number }[] {
+  const asphaltSegs = ROAD_SEGMENTS.filter((s) => s.surface !== 'gravel');
+  const overlaps: { segA: string; segB: string; x: number; z: number }[] = [];
+
+  const inAllowedJunction = (x: number, z: number) => {
+    for (const jd of ROAD_JUNCTION_DISCS) {
+      if (Math.hypot(x - jd.x, z - jd.z) <= jd.radius + 1.2) return true;
+    }
+    if (Math.hypot(x, z) <= PLAZA_RADIUS + 0.8) return true;
+    if (Math.abs(Math.hypot(x, z) - RING_ROAD_DEF.radius) <= RING_ROAD_DEF.halfWidth + 0.8) return true;
+    if (
+      Math.abs(Math.hypot(x - PADDOCK_CENTER.x, z - PADDOCK_CENTER.z) - PADDOCK_CENTER.radius) <=
+      PADDOCK_TRACK_DEF.width * 0.5 + 0.8
+    ) {
+      return true;
+    }
+    return false;
+  };
+
+  for (let i = 0; i < asphaltSegs.length; i++) {
+    const a = asphaltSegs[i];
+    const [ta0, ta1] = getTrimmedRoadSegmentRange(a);
+    const ax1 = a.x1 + (a.x2 - a.x1) * ta0;
+    const az1 = a.z1 + (a.z2 - a.z1) * ta0;
+    const ax2 = a.x1 + (a.x2 - a.x1) * ta1;
+    const az2 = a.z1 + (a.z2 - a.z1) * ta1;
+    const lenA = Math.hypot(ax2 - ax1, az2 - az1);
+    const steps = Math.max(2, Math.ceil(lenA));
+
+    for (let s = 1; s < steps; s++) {
+      const t = s / steps;
+      const px = ax1 + (ax2 - ax1) * t;
+      const pz = az1 + (az2 - az1) * t;
+      if (inAllowedJunction(px, pz)) continue;
+
+      for (let j = i + 1; j < asphaltSegs.length; j++) {
+        const b = asphaltSegs[j];
+        const [tb0, tb1] = getTrimmedRoadSegmentRange(b);
+        const bx1 = b.x1 + (b.x2 - b.x1) * tb0;
+        const bz1 = b.z1 + (b.z2 - b.z1) * tb0;
+        const bx2 = b.x1 + (b.x2 - b.x1) * tb1;
+        const bz2 = b.z1 + (b.z2 - b.z1) * tb1;
+        const dB = pointToSegmentDistance(px, pz, bx1, bz1, bx2, bz2);
+        const pen = (a.width * 0.5 + b.width * 0.5) - dB;
+        if (pen > 0.35) {
+          overlaps.push({ segA: a.id, segB: b.id, x: Number(px.toFixed(1)), z: Number(pz.toFixed(1)) });
+        }
+      }
+    }
+  }
+  return overlaps;
 }

@@ -6,6 +6,7 @@ import {
   getShadowConfigForQuality,
 } from './atmospherePresets';
 import { computeGroundHeight } from './physicsMath';
+import { isInsideTunnelZone } from './worldLayout';
 
 export interface AtmosphereCallbacks {
   onWetnessUpdate?: (wetness: number) => void;
@@ -15,9 +16,12 @@ export interface AtmosphereCallbacks {
 export interface AtmosphereSystem {
   applyWeatherMode: (mode: WeatherMode, immediate?: boolean) => void;
   setQualityProfile: (quality: QualityLevel, reducedMotion: boolean, isSoftwareGl: boolean) => void;
+  setDayNightCycle: (enabled: boolean) => void;
+  setPlayerPosition: (x: number, z: number) => void;
   update: (motionTime: number, dt: number) => void;
   getWetness: () => number;
   getNightGlow: () => number;
+  getSunDirection: (out: THREE.Vector3) => THREE.Vector3;
 }
 
 interface CloudRuntime {
@@ -341,12 +345,82 @@ export function createAtmosphereSystem(
   scene.add(puddleGroup);
 
   // =========================================================================
+  // 4B. LAYERED FBM NOISE-DISPLACED MOUNTAIN RIDGES WITH SNOW CAPS
+  // =========================================================================
+  const mountainRings = [
+    { radius: 196, baseHeight: 22, amplitude: 17, peakPower: 1.45, seed: 1.7, snowThreshold: 0.62, rockColor: 0x5c686e },
+    { radius: 224, baseHeight: 32, amplitude: 24, peakPower: 1.35, seed: 4.9, snowThreshold: 0.56, rockColor: 0x4b5863 },
+  ];
+  for (const ring of mountainRings) {
+    const radialSegs = 96;
+    const heightSegs = 6;
+    const mGeo = new THREE.CylinderGeometry(ring.radius, ring.radius + 14, 1, radialSegs, heightSegs, true);
+    const pos = mGeo.attributes.position;
+    const colors = new Float32Array(pos.count * 3);
+    const baseRock = new THREE.Color(ring.rockColor);
+    const alpineGrass = new THREE.Color(0x4b6a50);
+    const snowCol = new THREE.Color(0xf4f7fa);
+    const tmpCol = new THREE.Color();
+
+    for (let i = 0; i < pos.count; i++) {
+      const vx = pos.getX(i);
+      const vy = pos.getY(i) + 0.5; // 0..1 from skirt base to crest
+      const vz = pos.getZ(i);
+      const ang = Math.atan2(vz, vx);
+      // Multi-octave deterministic ridge noise
+      const ridge1 = Math.sin(ang * 5 + ring.seed) * 0.5 + 0.5;
+      const ridge2 = Math.sin(ang * 13 - ring.seed * 1.4) * 0.5 + 0.5;
+      const ridge3 = Math.cos(ang * 23 + ring.seed * 0.7) * 0.5 + 0.5;
+      const ridgeNoise = Math.pow(ridge1 * 0.54 + ridge2 * 0.31 + ridge3 * 0.15, ring.peakPower);
+      const crestY = ring.baseHeight + ridgeNoise * ring.amplitude;
+      const outPush = (1 - vy) * 8.0 + (ridge2 - 0.5) * 4.5 * vy;
+      const rScale = (ring.radius + outPush) / ring.radius;
+      const worldY = -4.0 + vy * crestY;
+
+      pos.setXYZ(i, vx * rScale, worldY, vz * rScale);
+
+      const heightNorm = (vy * crestY - ring.baseHeight * 0.5) / (ring.amplitude + ring.baseHeight * 0.5);
+      if (heightNorm > ring.snowThreshold && vy > 0.55) {
+        const snowMix = THREE.MathUtils.clamp((heightNorm - ring.snowThreshold) * 3.4, 0, 1);
+        tmpCol.copy(baseRock).lerp(snowCol, snowMix);
+      } else {
+        const mossMix = THREE.MathUtils.clamp(1 - vy * 1.6, 0, 1);
+        tmpCol.copy(baseRock).lerp(alpineGrass, mossMix * 0.55);
+      }
+      colors[i * 3] = tmpCol.r;
+      colors[i * 3 + 1] = tmpCol.g;
+      colors[i * 3 + 2] = tmpCol.b;
+    }
+    mGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    mGeo.computeVertexNormals();
+    const mMat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.94,
+      metalness: 0.02,
+      side: THREE.DoubleSide,
+    });
+    geometries.push(mGeo);
+    materials.push(mMat);
+    const mMesh = new THREE.Mesh(mGeo, mMat);
+    mMesh.receiveShadow = false;
+    mMesh.castShadow = false;
+    scene.add(mMesh);
+  }
+
+  // =========================================================================
   // 5. SMOOTH WEATHER TRANSITION STATE + SCRATCH TARGETS (ZERO GC)
   // =========================================================================
   let targetWeather: WeatherMode = 'sunny';
   let currentQuality: QualityLevel = 'high';
   let currentReducedMotion = false;
   let currentSoftwareGl = false;
+  let dayNightEnabled = false;
+  let playerInsideTunnel = false;
+  let tunnelDimBlend = 0;
+  let stormFlash = 0;
+  let nextLightningIn = 5.5;
+  const _daySunPos = new THREE.Vector3();
+  const _dayCelestialDir = new THREE.Vector3();
 
   const curState = {
     fogColor: new THREE.Color(initial.fogHex),
@@ -429,12 +503,13 @@ export function createAtmosphereSystem(
     cloudCumulusMat.opacity = curState.cloudOpacity * qualityCloudOpacityScale;
     cloudCirrusMat.opacity = curState.cloudOpacity * 0.54 * qualityCloudOpacityScale;
 
+    const insideDim = 1 - tunnelDimBlend * 0.42;
     hemi.color.copy(curState.hemiSky);
     hemi.groundColor.copy(curState.hemiGround);
-    hemi.intensity = curState.hemiIntensity;
+    hemi.intensity = curState.hemiIntensity * insideDim;
 
     sun.color.copy(curState.sunColor);
-    sun.intensity = curState.sunIntensity;
+    sun.intensity = (curState.sunIntensity + stormFlash * 1.15) * (1 - tunnelDimBlend * 0.55);
     sun.position.copy(curState.sunPos);
 
     // Calibrate normalBias dynamically for low sunset shadows vs high noon shadows
@@ -448,18 +523,22 @@ export function createAtmosphereSystem(
 
     coolFill.color.copy(curState.fillColor);
     coolFill.intensity = curState.fillIntensity;
-    scene.environmentIntensity = curState.envIntensity;
+    scene.environmentIntensity = curState.envIntensity * insideDim;
 
-    const rainVisible = curState.rainStrength > 0.02 && !currentReducedMotion;
+    // Occlude exterior rain streaks cleanly inside the roofed West Ridge Tunnel
+    const rainVisible = curState.rainStrength > 0.02 && !currentReducedMotion && tunnelDimBlend < 0.7;
     rainInst.visible = rainVisible;
-    rainMat.opacity = curState.rainStrength * 0.52;
+    rainMat.opacity = Math.min(0.7, curState.rainStrength * 0.52) * (1 - tunnelDimBlend);
 
     const puddleOpacity = currentQuality === 'low' ? 0 : curState.wetness * 0.56;
     puddleGroup.visible = puddleOpacity > 0.015;
     puddleMat.opacity = puddleOpacity;
 
     callbacks.onWetnessUpdate?.(curState.wetness);
-    callbacks.onNightGlowUpdate?.(curState.nightGlow, curState.lighthouseBeamOpacity);
+    callbacks.onNightGlowUpdate?.(
+      Math.max(curState.nightGlow, tunnelDimBlend * 0.9),
+      curState.lighthouseBeamOpacity,
+    );
   };
 
   const applyWeatherMode = (mode: WeatherMode, immediate = false) => {
@@ -551,6 +630,23 @@ export function createAtmosphereSystem(
   const update = (motionTime: number, dt: number) => {
     const p = WEATHER_ATMOSPHERE_PRESETS[targetWeather] ?? WEATHER_ATMOSPHERE_PRESETS.sunny;
 
+    tunnelDimBlend = THREE.MathUtils.lerp(
+      tunnelDimBlend,
+      playerInsideTunnel ? 1 : 0,
+      1 - Math.exp(-dt * 8.0),
+    );
+
+    if (targetWeather === 'storm' && !currentReducedMotion) {
+      nextLightningIn -= dt;
+      if (nextLightningIn <= 0) {
+        stormFlash = 1.0;
+        nextLightningIn = 4.5 + ((motionTime * 3.17) % 6.0);
+      }
+      stormFlash = Math.max(0, stormFlash - dt * 5.2);
+    } else {
+      stormFlash = 0;
+    }
+
     // Smooth liquid transition toward target weather preset (~1.0s wall-clock fade)
     const lerpAlpha = 1 - Math.exp(-dt * 4.2);
     targetColors.fogColor.set(p.fogHex);
@@ -568,6 +664,16 @@ export function createAtmosphereSystem(
     targetColors.sunColor.set(p.sunColorHex);
     targetColors.sunPos.set(...p.sunPos);
     targetColors.fillColor.set(p.fillColorHex);
+
+    if (dayNightEnabled && targetWeather !== 'night') {
+      const cycleAng = (motionTime * 0.045) % (Math.PI * 2);
+      const elev = Math.sin(cycleAng);
+      const sunH = THREE.MathUtils.lerp(18, 86, Math.max(0, elev * 0.5 + 0.5));
+      _daySunPos.set(Math.cos(cycleAng) * 74, sunH, Math.sin(cycleAng) * 52);
+      targetColors.sunPos.copy(_daySunPos);
+      _dayCelestialDir.copy(_daySunPos).normalize();
+      targetColors.celestialDir.copy(_dayCelestialDir);
+    }
 
     curState.fogColor.lerp(targetColors.fogColor, lerpAlpha);
     curState.fogDensity = THREE.MathUtils.lerp(curState.fogDensity, p.fogDensity, lerpAlpha);
@@ -641,7 +747,8 @@ export function createAtmosphereSystem(
 
     // Animate multi-layer clouds along diverse velocity vectors + gentle vertical bob
     if (!currentReducedMotion) {
-      const windBoost = targetWeather === 'rain' ? 1.35 : targetWeather === 'fog' ? 0.65 : 1.0;
+      const windBoost =
+        targetWeather === 'storm' ? 1.85 : targetWeather === 'rain' ? 1.35 : targetWeather === 'fog' ? 0.65 : 1.0;
       for (const c of clouds) {
         if (!c.grp.visible) continue;
         c.grp.position.x += c.vx * windBoost * dt;
@@ -656,11 +763,12 @@ export function createAtmosphereSystem(
 
     // Animate varied wind-slanted rain drops
     if (rainInst.visible && !currentReducedMotion) {
+      const stormGain = targetWeather === 'storm' ? 1.35 : 1.0;
       for (let i = 0; i < activeRainCount; i++) {
         const drop = rainDrops[i];
-        drop.y -= drop.speed * dt;
-        drop.x += drop.vx * dt;
-        drop.z += drop.vz * dt;
+        drop.y -= drop.speed * stormGain * dt;
+        drop.x += drop.vx * stormGain * dt;
+        drop.z += drop.vz * stormGain * dt;
         if (drop.y < -1) {
           drop.y = 33 + Math.random() * 6;
           drop.x = (Math.random() - 0.5) * 146;
@@ -668,7 +776,7 @@ export function createAtmosphereSystem(
         }
         rainDummy.position.set(drop.x, drop.y, drop.z);
         rainDummy.rotation.set(drop.vz / drop.speed, 0, -drop.vx / drop.speed);
-        rainDummy.scale.set(drop.thickScale, drop.lenScale, drop.thickScale);
+        rainDummy.scale.set(drop.thickScale, drop.lenScale * stormGain, drop.thickScale);
         rainDummy.updateMatrix();
         rainInst.setMatrixAt(i, rainDummy.matrix);
       }
@@ -679,8 +787,15 @@ export function createAtmosphereSystem(
   return {
     applyWeatherMode,
     setQualityProfile,
+    setDayNightCycle: (enabled: boolean) => {
+      dayNightEnabled = enabled;
+    },
+    setPlayerPosition: (x: number, z: number) => {
+      playerInsideTunnel = isInsideTunnelZone(x, z);
+    },
     update,
     getWetness: () => curState.wetness,
     getNightGlow: () => curState.nightGlow,
+    getSunDirection: (out: THREE.Vector3) => out.copy(curState.sunPos).normalize(),
   };
 }

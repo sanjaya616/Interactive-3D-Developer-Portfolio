@@ -10,6 +10,7 @@ import {
   ASSISTANT_MODEL,
   ASSISTANT_SYSTEM_INSTRUCTION,
   classifyGeminiApiError,
+  extractFollowUpChips,
   extractNavigationSuggestions,
   validateAssistantRequest,
 } from './src/server/portfolioAssistant.ts';
@@ -428,9 +429,11 @@ async function startServer(): Promise<void> {
         }
 
         const suggestions = extractNavigationSuggestions(message, reply);
+        const followUps = extractFollowUpChips(message, reply);
         res.json({
           reply,
           suggestions,
+          followUps,
           model: ASSISTANT_MODEL,
         });
         return;
@@ -458,6 +461,119 @@ async function startServer(): Promise<void> {
       code: fallbackErr.code,
       error: fallbackErr.message,
     });
+  });
+
+  app.post('/api/assistant/chat/stream', async (req: Request, res: Response) => {
+    const parsed = validateAssistantRequest(req.body);
+    if (parsed.ok === false) {
+      res.status(400).json({ code: 'INVALID_REQUEST', error: parsed.error });
+      return;
+    }
+
+    const rate = assistantLimiter.check(getClientKey(req, 'assistant'), 20, 60_000, 750);
+    if (!rate.allowed) {
+      res.status(429).json({
+        code: 'AI_RATE_LIMITED',
+        error: `Please wait ${rate.retryAfterSec}s before sending another question.`,
+      });
+      return;
+    }
+
+    if (!geminiAi) {
+      res.status(503).json({
+        code: 'AI_UNAVAILABLE',
+        error:
+          'The AI Portfolio Guide is currently offline because the Gemini API service is not configured. You can still drive the 3D world and inspect all portfolio pages.',
+      });
+      return;
+    }
+
+    const { message, history, currentRoute, currentZone } = parsed.data;
+    const contextNote =
+      currentRoute === '/'
+        ? `[Visitor is currently exploring the 3D World near: ${currentZone}]`
+        : `[Visitor is currently viewing portfolio page: ${currentRoute}]`;
+
+    const contents: Content[] = [
+      ...history.map((turn) => ({
+        role: turn.role,
+        parts: [{ text: turn.text }],
+      })),
+      {
+        role: 'user',
+        parts: [{ text: `${contextNote}\n${message}` }],
+      },
+    ];
+
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+
+    let clientClosed = false;
+    req.on('close', () => {
+      clientClosed = true;
+    });
+
+    const sendEvent = (event: string, payload: unknown) => {
+      if (clientClosed || res.writableEnded) return;
+      res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+    };
+
+    try {
+      const stream = await geminiAi.models.generateContentStream({
+        model: ASSISTANT_MODEL,
+        contents,
+        config: {
+          systemInstruction: ASSISTANT_SYSTEM_INSTRUCTION,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        },
+      });
+
+      let fullReply = '';
+      for await (const chunk of stream) {
+        if (clientClosed) break;
+        const delta = chunk.text ?? '';
+        if (delta) {
+          fullReply += delta;
+          sendEvent('chunk', { text: delta });
+        }
+      }
+
+      const trimmed = fullReply.trim();
+      if (!trimmed && !clientClosed) {
+        sendEvent('error', {
+          code: 'AI_UPSTREAM_ERROR',
+          error: 'Empty response returned from Gemini model.',
+        });
+      } else if (!clientClosed) {
+        const suggestions = extractNavigationSuggestions(message, trimmed);
+        const followUps = extractFollowUpChips(message, trimmed);
+        sendEvent('done', {
+          reply: trimmed,
+          suggestions,
+          followUps,
+          model: ASSISTANT_MODEL,
+        });
+      }
+    } catch (err) {
+      if (!clientClosed) {
+        const classified = classifyGeminiApiError(err);
+        console.error(
+          '[Assistant Stream Error]',
+          classified.code,
+          err instanceof Error ? err.message.slice(0, 240) : String(err).slice(0, 240),
+        );
+        sendEvent('error', {
+          code: classified.code,
+          error: classified.message,
+        });
+      }
+    } finally {
+      if (!res.writableEnded) {
+        res.end();
+      }
+    }
   });
 
   if (process.env.NODE_ENV !== 'production') {

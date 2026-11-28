@@ -14,6 +14,7 @@ import {
   TREASURE_CHESTS,
   WORLD_LANDMARKS,
 } from '../data/portfolioData';
+import { PADDOCK_CENTER } from './worldConstants';
 import type {
   ActiveChallengeHud,
   ActiveChallengeId,
@@ -164,6 +165,74 @@ export class ChallengeManager {
 
   getLiveStuntScore(): number {
     return Math.round(this.stuntBankedTotal + this.stuntPendingAirPts);
+  }
+
+  getActiveTargetPoint(): { x: number; z: number; label: string } | null {
+    if (this.racePhase === 'countdown' || this.racePhase === 'racing') {
+      if (this.raceCpIndex < PADDOCK_CHECKPOINTS.length) {
+        const cp = PADDOCK_CHECKPOINTS[this.raceCpIndex];
+        return { x: cp.x, z: cp.z, label: cp.label || `Sector ${this.raceCpIndex + 1}` };
+      }
+      return { x: PADDOCK_CENTER.x, z: PADDOCK_CENTER.z, label: 'Finish Gantry' };
+    }
+    if (this.status !== 'active' || !this.activeId) return null;
+
+    if (this.activeId === 'delivery') {
+      const targetId = DELIVERY_ROUTE_IDS[Math.min(this.deliveryStep, DELIVERY_ROUTE_IDS.length - 1)];
+      const lm = WORLD_LANDMARKS.find((l) => l.id === targetId);
+      return lm ? { x: lm.position.x, z: lm.position.z, label: lm.title } : null;
+    }
+    if (this.activeId === 'sql') {
+      const g = SQL_CHALLENGE_GATES[Math.min(this.sqlStep, SQL_CHALLENGE_GATES.length - 1)];
+      return g ? { x: g.x, z: g.z, label: `SQL ${g.clause}` } : null;
+    }
+    if (this.activeId === 'rfid') {
+      if (this.rfidStep === 0) return { x: 54, z: 42, label: 'RFID Keycard #4092' };
+      if (this.rfidStep === 1) return { x: 44, z: 48, label: 'Scanner Booth' };
+      return { x: 48, z: 55, label: 'Compound Exit Gate' };
+    }
+    if (this.activeId === 'bughunt') {
+      const nextBug = BUG_HUNT_TARGETS.find((b) => !this.bugsFound.has(b.id));
+      return nextBug ? { x: nextBug.x, z: nextBug.z, label: nextBug.label } : null;
+    }
+    if (this.activeId === 'memory') {
+      const padId = MEMORY_SEQUENCE[Math.min(this.memoryInputStep, MEMORY_SEQUENCE.length - 1)];
+      const pad = MEMORY_PADS.find((p) => p.id === padId) ?? MEMORY_PADS[0];
+      return pad ? { x: pad.x, z: pad.z, label: pad.label } : null;
+    }
+    if (this.activeId === 'treasure') {
+      const chest = TREASURE_CHESTS.find((t) => !this.treasuresFound.has(t.id));
+      return chest ? { x: chest.x, z: chest.z, label: chest.label } : null;
+    }
+    if (this.activeId === 'timetrial') {
+      const cp = TIME_TRIAL_CHECKPOINTS[Math.min(this.timeTrialStep, TIME_TRIAL_CHECKPOINTS.length - 1)];
+      return cp ? { x: cp.x, z: cp.z, label: cp.label } : null;
+    }
+    if (this.activeId === 'lagoon-run') {
+      const cp = LAGOON_RUN_CHECKPOINTS[Math.min(this.lagoonStep, LAGOON_RUN_CHECKPOINTS.length - 1)];
+      return cp ? { x: cp.x, z: cp.z, label: cp.label } : null;
+    }
+    if (this.activeId === 'drift-master') {
+      const cp = DRIFT_CIRCUIT_CHECKPOINTS[this.driftGateStep % DRIFT_CIRCUIT_CHECKPOINTS.length];
+      return cp ? { x: cp.x, z: cp.z, label: cp.label } : null;
+    }
+    if (this.activeId === 'stunt-master') {
+      const sc = STUNT_AIR_CHECKPOINTS.find((c) => !this.stuntGatesCleared.has(c.id)) ?? STUNT_AIR_CHECKPOINTS[0];
+      return sc ? { x: sc.x, z: sc.z, label: sc.label } : null;
+    }
+    if (this.activeId === 'double-jump-trial') {
+      const p = DOUBLE_JUMP_PLATFORMS[Math.min(this.djStep, DOUBLE_JUMP_PLATFORMS.length - 1)];
+      return p ? { x: p.x, z: p.z, label: p.label } : null;
+    }
+    if (this.activeId === 'precision-parking') {
+      const bay = PRECISION_PARKING_BAYS[Math.min(this.parkingStep, PRECISION_PARKING_BAYS.length - 1)];
+      return bay ? { x: bay.x, z: bay.z, label: bay.label } : null;
+    }
+    if (this.activeId === 'forest-trail') {
+      const g = FOREST_TRAIL_GATES[Math.min(this.ftStep, FOREST_TRAIL_GATES.length - 1)];
+      return g ? { x: g.x, z: g.z, label: g.label } : null;
+    }
+    return null;
   }
 
   startChallenge(id: Exclude<ActiveChallengeId, null>): ChallengeTickEffects {
@@ -419,8 +488,8 @@ export class ChallengeManager {
           }
         }
       } else {
-        // Cross finish line at Paddock (-66, 18)
-        if (Math.hypot(px + 66, pz - 18) <= 8.5 && this.raceElapsedSec > 5) {
+        // Cross finish line at Paddock
+        if (Math.hypot(px - PADDOCK_CENTER.x, pz - PADDOCK_CENTER.z) <= 8.5 && this.raceElapsedSec > 5) {
           const cleanSec = Number(this.raceElapsedSec.toFixed(2));
           this.racePhase = 'finished';
           this.raceLastSec = cleanSec;

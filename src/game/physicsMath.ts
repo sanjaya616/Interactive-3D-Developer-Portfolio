@@ -1,5 +1,20 @@
-import type { VehicleConfig, WaterDriveState, WorldLandmark } from '../types/portfolio';
+import type {
+  DrivingAssistLevel,
+  VehicleConfig,
+  WaterDriveState,
+  WorldLandmark,
+} from '../types/portfolio';
 import { STUNT_ARENA_RAMPS, DOUBLE_JUMP_PLATFORMS } from '../data/portfolioData';
+import {
+  PADDOCK_CENTER,
+  PADDOCK_TRACK_DEF,
+  PLAZA_RADIUS,
+  RING_ROAD_DEF,
+  ROAD_JUNCTION_DISCS,
+  ROAD_SEGMENTS,
+  WEST_RIDGE_TUNNEL_DEF,
+  WORLD_HALF_SPAN,
+} from './worldConstants';
 
 export interface VehicleInputIntent {
   throttle: number; // -1 (reverse) to +1 (forward)
@@ -489,7 +504,7 @@ export function computeSafeRecoveryPose(
       const a = (i / steps) * Math.PI * 2;
       const cx = curX + Math.cos(a) * r;
       const cz = curZ + Math.sin(a) * r;
-      if (Math.abs(cx) > 154 || Math.abs(cz) > 154) continue;
+      if (Math.abs(cx) > WORLD_HALF_SPAN - 2 || Math.abs(cz) > WORLD_HALF_SPAN - 2) continue;
       if (isBlocked(cx, cz)) continue;
       const onBridge = computeBridgeSurfaceY(cx, cz);
       const gy = computeGroundHeight(cx, cz);
@@ -502,6 +517,62 @@ export function computeSafeRecoveryPose(
 
   // Fallback safe plaza if boxed in everywhere
   return { x: 0, y: 0.72, z: 6, yaw: 0 };
+}
+
+/**
+ * Finds the nearest dry drivable road/trail/arena point for water/stuck rescue,
+ * returning a pose rotated to face toward the nearest dry shore / road continuation.
+ */
+export function computeNearestRoadRescuePose(
+  curX: number,
+  curZ: number,
+): { x: number; y: number; z: number; yaw: number } {
+  let bestX = 0;
+  let bestZ = 6;
+  let bestDist = Infinity;
+
+  // Check Plaza rim
+  const plazaR = Math.hypot(curX, curZ);
+  if (plazaR <= PLAZA_RADIUS + 4) {
+    return { x: 0, y: 0.72, z: 6, yaw: 0 };
+  }
+
+  // Check Ring Road outside NW Lagoon Viaduct
+  const r = Math.hypot(curX, curZ) || 1;
+  const ang = Math.atan2(curZ, curX);
+  const inViaductArc = curX > 10 && curZ < -5 && ang >= -1.08 && ang <= -0.4;
+  if (!inViaductArc) {
+    const rx = (curX / r) * RING_ROAD_DEF.radius;
+    const rz = (curZ / r) * RING_ROAD_DEF.radius;
+    const d = Math.hypot(rx - curX, rz - curZ);
+    if (d < bestDist) {
+      bestDist = d;
+      bestX = rx;
+      bestZ = rz;
+    }
+  }
+
+  for (let i = 0; i < ROAD_SEGMENTS.length; i++) {
+    const seg = ROAD_SEGMENTS[i];
+    const dx = seg.x2 - seg.x1;
+    const dz = seg.z2 - seg.z1;
+    const lenSq = dx * dx + dz * dz;
+    const t = lenSq > 1e-6 ? Math.max(0, Math.min(1, ((curX - seg.x1) * dx + (curZ - seg.z1) * dz) / lenSq)) : 0;
+    const px = seg.x1 + dx * t;
+    const pz = seg.z1 + dz * t;
+    const gy = computeGroundHeight(px, pz);
+    if (gy < -0.2) continue;
+    const d = Math.hypot(px - curX, pz - curZ);
+    if (d < bestDist) {
+      bestDist = d;
+      bestX = px;
+      bestZ = pz;
+    }
+  }
+
+  const gy = computeGroundHeight(bestX, bestZ);
+  const yaw = Math.atan2(bestX - curX, bestZ - curZ) + Math.PI;
+  return { x: bestX, y: Math.max(0, gy) + 0.75, z: bestZ, yaw };
 }
 
 export function speedMsToKmh(speedMs: number): number {
@@ -524,6 +595,22 @@ export const FOREST_BROOK_BRIDGE = {
   archRise: 0.62,
 } as const;
 
+function pointSegClosest(
+  px: number,
+  pz: number,
+  x1: number,
+  z1: number,
+  x2: number,
+  z2: number,
+): { dist: number; t: number } {
+  const dx = x2 - x1;
+  const dz = z2 - z1;
+  const lenSq = dx * dx + dz * dz;
+  if (lenSq <= 1e-6) return { dist: Math.hypot(px - x1, pz - z1), t: 0 };
+  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (pz - z1) * dz) / lenSq));
+  return { dist: Math.hypot(px - (x1 + t * dx), pz - (z1 + t * dz)), t };
+}
+
 export function computeGroundHeight(x: number, z: number): number {
   let height = 0;
 
@@ -534,9 +621,9 @@ export function computeGroundHeight(x: number, z: number): number {
     height = Math.max(height, 3.6 * hillWeight);
   }
 
-  // Smooth ramp road leading up Lookout Hill (x in [-6.5, 6.5], z in [-60, -38])
-  if (Math.abs(x) < 7.5 && z <= -38 && z >= -62) {
-    const rampT = smoothstep(-38, -60, z);
+  // Smooth ramp road leading up Lookout Hill (x in [-6.5, 6.5], z in [-65, -36.5])
+  if (Math.abs(x) < 7.5 && z <= -36.5 && z >= -66) {
+    const rampT = Math.max(0, Math.min(1, (-36.5 - z) / 27.6));
     const sideBlend = 1 - smoothstep(4.5, 7.5, Math.abs(x));
     height = Math.max(height, 3.6 * rampT * sideBlend);
   }
@@ -561,10 +648,9 @@ export function computeGroundHeight(x: number, z: number): number {
     height = Math.min(height, -1.55 * coveDepth);
   }
 
-  // 4. Outer perimeter scenic hills (r > 86m), cleanly masked out for flat/carved expansion districts
+  // 4. Outer perimeter scenic hills (r > 86m), extending smoothly across +40m scenic skirt
   const distOrigin = Math.hypot(x, z);
   if (distOrigin > 86) {
-    // Flatten mask for Amphibious Lagoon District (-36, 118), Stunt & Drift Arena (106, 74), and Forest Trail Brook
     const arenaFlatMask =
       smoothstep(70, 78, x) *
       (1 - smoothstep(144, 154, x)) *
@@ -578,14 +664,15 @@ export function computeGroundHeight(x: number, z: number): number {
       (1 - smoothstep(-48, -40, z));
 
     const suppressOuter = Math.min(1, arenaFlatMask + amphFlatMask + forestBenchMask * 0.7);
-    const blend = smoothstep(86, 118, distOrigin) * (1 - suppressOuter);
+    const blend = smoothstep(86, 122, distOrigin) * (1 - suppressOuter);
+    const outerSkirtBoost = smoothstep(WORLD_HALF_SPAN - 4, WORLD_HALF_SPAN + 32, distOrigin) * 4.6;
     const wave =
       Math.sin(x * 0.05) * Math.cos(z * 0.05) * 3.1 +
       Math.sin((x - z) * 0.032) * 1.8 +
-      3.8;
+      3.8 +
+      outerSkirtBoost;
     height += Math.max(0, wave) * blend;
 
-    // Gentle rolling woodland height inside Forest Trail District (~1.15m bench matching bridge abutments)
     if (forestBenchMask > 0.01) {
       const benchY =
         1.15 * forestBenchMask +
@@ -594,7 +681,7 @@ export function computeGroundHeight(x: number, z: number): number {
     }
   }
 
-  // Forest Brook stream trough strictly beneath Forest Brook Timber Bridge (x in [-109.5, -98.5], z in [-89, -79])
+  // Forest Brook stream trough beneath Forest Brook Timber Bridge (x in [-109.5, -98.5], z in [-89, -79])
   if (x >= -109.5 && x <= -98.5 && z >= -89 && z <= -79) {
     const uX = 1 - smoothstep(1.5, 5.5, Math.abs(x + 104));
     const uZ = 1 - smoothstep(2.0, 5.0, Math.abs(z + 84));
@@ -605,8 +692,71 @@ export function computeGroundHeight(x: number, z: number): number {
   const distAmph = Math.hypot(x + 36, z - 118);
   if (distAmph < 24.5) {
     const basinProfile = 1 - smoothstep(16.5, 24.5, distAmph);
-    // Shallow -0.68m bed -> water at -0.35m => smooth 0.33m shallow water depth!
     height = Math.min(height, -0.68 * basinProfile);
+  }
+
+  // 5B. Unified road-corridor grading (ensures flat lateral crowns and <= 0.20 longitudinal slope everywhere)
+  let bestRoadW = 0;
+  let bestRoadY = height;
+  const considerGrade = (dist: number, halfFlat: number, halfShoulder: number, targetY: number) => {
+    if (dist >= halfShoulder) return;
+    const w = 1 - smoothstep(halfFlat, halfShoulder, dist);
+    if (w > bestRoadW) {
+      bestRoadW = w;
+      bestRoadY = targetY;
+    }
+  };
+
+  // Starting Plaza
+  considerGrade(distOrigin, PLAZA_RADIUS + 0.5, PLAZA_RADIUS + 3.4, 0);
+
+  // Sunlit Ring Road outside NW Lagoon Viaduct basin
+  const ringAng = Math.atan2(z, x);
+  const inViaductWaterGap = x > 10 && z < -5 && ringAng >= -1.07 && ringAng <= -0.41;
+  if (!inViaductWaterGap) {
+    considerGrade(Math.abs(distOrigin - RING_ROAD_DEF.radius), RING_ROAD_DEF.halfWidth + 0.55, RING_ROAD_DEF.halfWidth + 3.4, 0);
+  }
+
+  // Paddock Oval Circuit & Pit Lane
+  const distPaddock = Math.hypot(x - PADDOCK_TRACK_DEF.centerX, z - PADDOCK_TRACK_DEF.centerZ);
+  considerGrade(
+    Math.abs(distPaddock - PADDOCK_TRACK_DEF.radius),
+    PADDOCK_TRACK_DEF.width * 0.5 + 0.65,
+    PADDOCK_TRACK_DEF.width * 0.5 + 3.4,
+    0,
+  );
+
+  // Junction Discs
+  for (let i = 0; i < ROAD_JUNCTION_DISCS.length; i++) {
+    const jc = ROAD_JUNCTION_DISCS[i];
+    considerGrade(Math.hypot(x - jc.x, z - jc.z), jc.radius + 0.4, jc.radius + 2.8, 0);
+  }
+
+  // Stunt & Drift Arena tarmac apron
+  const arenaDx = Math.max(Math.abs(x - 108) - 33, 0);
+  const arenaDz = Math.max(Math.abs(z - 76) - 38, 0);
+  considerGrade(Math.hypot(arenaDx, arenaDz), 0.5, 3.5, 0);
+
+  // Road & Gravel Segments
+  for (let i = 0; i < ROAD_SEGMENTS.length; i++) {
+    const seg = ROAD_SEGMENTS[i];
+    const { dist, t } = pointSegClosest(x, z, seg.x1, seg.z1, seg.x2, seg.z2);
+    const halfFlat = seg.width * 0.5 + 0.55;
+    const halfShoulder = seg.width * 0.5 + 3.35;
+    if (dist < halfShoulder) {
+      let targetY: number;
+      if (seg.id === 'lookout-ramp') {
+        const rampProgress = Math.min(1, t / 0.85);
+        targetY = (seg.y1 ?? 0) + ((seg.y2 ?? 3.6) - (seg.y1 ?? 0)) * rampProgress;
+      } else {
+        targetY = (seg.y1 ?? 0) + ((seg.y2 ?? 0) - (seg.y1 ?? 0)) * t;
+      }
+      considerGrade(dist, halfFlat, halfShoulder, targetY);
+    }
+  }
+
+  if (bestRoadW > 0) {
+    height = height * (1 - bestRoadW) + bestRoadY * bestRoadW;
   }
 
   // 6. Stunt & Drift Arena sculpted launch ramps
@@ -919,14 +1069,14 @@ export function getZoneName(x: number, z: number, landmarks: WorldLandmark[]): s
     return 'Forest Brook Timber Bridge';
   }
   {
-    const tunYaw = -1.0122;
-    const dx = x - -42.65;
-    const dz = z - 3.41;
+    const tunYaw = WEST_RIDGE_TUNNEL_DEF.yaw;
+    const dx = x - WEST_RIDGE_TUNNEL_DEF.centerX;
+    const dz = z - WEST_RIDGE_TUNNEL_DEF.centerZ;
     const c = Math.cos(tunYaw);
     const s = Math.sin(tunYaw);
     const lx = dx * c - dz * s;
     const lz = dx * s + dz * c;
-    if (Math.abs(lx) <= 5.0 && Math.abs(lz) <= 6.3) {
+    if (Math.abs(lx) <= WEST_RIDGE_TUNNEL_DEF.innerHalfWidth + 0.6 && Math.abs(lz) <= WEST_RIDGE_TUNNEL_DEF.halfLength + 1.0) {
       return 'West Ridge Tunnel';
     }
   }
@@ -950,4 +1100,150 @@ export function getZoneName(x: number, z: number, landmarks: WorldLandmark[]): s
   if (dist < 14) return 'Starting Plaza';
   if (dist < 46) return 'Sunlit Ring Road';
   return 'Outer Valley';
+}
+
+// =========================================================================
+// PROMPT 6: SURFACE CLASSIFICATION, 5-GEAR TORQUE, PACEJKA TYRE & AI PACING
+// =========================================================================
+export type SurfaceType = 'asphalt' | 'gravel' | 'grass' | 'sand' | 'water' | 'wood';
+
+export function sampleSurfaceType(
+  x: number,
+  z: number,
+  shoreDepth: number,
+  onBridge: boolean,
+): SurfaceType {
+  if (onBridge) return 'wood';
+  if (shoreDepth > 0.05) return 'water';
+
+  const r = Math.hypot(x, z);
+  if (r <= PLAZA_RADIUS + 0.4) return 'asphalt';
+  if (Math.abs(r - RING_ROAD_DEF.radius) <= RING_ROAD_DEF.halfWidth + 0.3) return 'asphalt';
+  if (
+    Math.abs(Math.hypot(x - PADDOCK_CENTER.x, z - PADDOCK_CENTER.z) - PADDOCK_CENTER.radius) <=
+    PADDOCK_CENTER.trackWidth * 0.5 + 0.35
+  ) {
+    return 'asphalt';
+  }
+  if (x >= 74 && x <= 142 && z >= 37 && z <= 115) return 'asphalt';
+
+  for (let i = 0; i < ROAD_SEGMENTS.length; i++) {
+    const seg = ROAD_SEGMENTS[i];
+    const { dist } = pointSegClosest(x, z, seg.x1, seg.z1, seg.x2, seg.z2);
+    if (dist <= seg.width * 0.5 + 0.25) {
+      return seg.surface === 'gravel' ? 'gravel' : 'asphalt';
+    }
+  }
+
+  // Coastal beaches near Emerald Lagoon / South Cove / Amphibious Lagoon
+  const nearAmph = Math.hypot(x + 36, z - 118) < 28;
+  const nearCove = Math.hypot(x + 18, z - 66) < 17;
+  const nearLagoon = x >= 13 && x <= 77 && z >= -33 && z <= -11;
+  if (nearAmph || nearCove || nearLagoon) return 'sand';
+
+  return 'grass';
+}
+
+export function getSurfaceGripFactor(surface: SurfaceType, wetness: number): number {
+  const w = Math.max(0, Math.min(1, wetness));
+  switch (surface) {
+    case 'asphalt':
+      return 1.0 - w * 0.14;
+    case 'wood':
+      return 0.94 - w * 0.16;
+    case 'gravel':
+      return 0.78 - w * 0.08;
+    case 'sand':
+      return 0.68 - w * 0.06;
+    case 'grass':
+      return 0.72 - w * 0.1;
+    case 'water':
+      return 0.56;
+  }
+}
+
+export function getAssistProfile(assistLevel: DrivingAssistLevel = 'normal'): {
+  lateralAssist: number;
+  maxSteerScale: number;
+  spinDamping: number;
+} {
+  if (assistLevel === 'easy') {
+    return { lateralAssist: 1.25, maxSteerScale: 0.92, spinDamping: 0.9 };
+  }
+  if (assistLevel === 'pro') {
+    return { lateralAssist: 0.85, maxSteerScale: 1.08, spinDamping: 0.35 };
+  }
+  return { lateralAssist: 1.05, maxSteerScale: 1.0, spinDamping: 0.65 };
+}
+
+const GEAR_RATIOS = [3.4, 2.35, 1.65, 1.22, 0.92] as const;
+
+export function computeEngineTorqueAndGear(
+  forwardSpeedMs: number,
+  throttle: number,
+  maxForwardSpeed: number,
+): {
+  gear: number; // 0 = R, 1..5 forward gears
+  rpm: number; // 900 .. 7200
+  torqueFactor: number; // 0.55 .. 1.35
+} {
+  if (forwardSpeedMs < -0.5) {
+    const revNorm = Math.min(1, Math.abs(forwardSpeedMs) / 11);
+    return {
+      gear: 0,
+      rpm: Math.round(1100 + revNorm * 4900),
+      torqueFactor: 0.88,
+    };
+  }
+  const speedRatio = Math.max(0, Math.min(1.15, forwardSpeedMs / Math.max(8, maxForwardSpeed)));
+  let gear = 1;
+  if (speedRatio > 0.82) gear = 5;
+  else if (speedRatio > 0.62) gear = 4;
+  else if (speedRatio > 0.41) gear = 3;
+  else if (speedRatio > 0.21) gear = 2;
+
+  const bandLow = [0, 0.2, 0.4, 0.61, 0.81][gear - 1];
+  const bandHigh = [0.24, 0.44, 0.65, 0.85, 1.15][gear - 1];
+  const inBand = Math.max(0, Math.min(1, (speedRatio - bandLow) / (bandHigh - bandLow)));
+  const rpm = Math.round(1050 + inBand * 5650 + Math.abs(throttle) * 420);
+  // Peak engine torque in midrange RPM (3200..5600)
+  const rpmNorm = (rpm - 1000) / 6200;
+  const bellCurve = 1.0 - Math.pow((rpmNorm - 0.58) / 0.58, 2);
+  const ratioBoost = GEAR_RATIOS[gear - 1] / 2.0;
+  const torqueFactor = Math.max(0.62, Math.min(1.38, (0.72 + bellCurve * 0.45) * (0.7 + ratioBoost * 0.28)));
+  return { gear, rpm: Math.min(7200, Math.max(950, rpm)), torqueFactor };
+}
+
+/**
+ * Pacejka-inspired Magic Formula lateral & longitudinal tyre saturation model.
+ */
+export function computePacejkaTyreForces(opts: {
+  slipAngleRad: number;
+  normalLoadN: number;
+  gripMu: number;
+  handbrake: boolean;
+}): { lateralForceFactor: number; longitudinalCapacityFactor: number } {
+  const effectiveMu = opts.gripMu * (opts.handbrake ? 0.42 : 1.0);
+  const absAlpha = Math.min(Math.PI * 0.45, Math.abs(opts.slipAngleRad));
+  // Simplified Pacejka: D * sin(C * atan(B * alpha))
+  const B = opts.handbrake ? 4.2 : 7.5;
+  const C = 1.35;
+  const magic = Math.sin(C * Math.atan(B * absAlpha));
+  const lateralForceFactor = -Math.sign(opts.slipAngleRad) * magic * effectiveMu;
+  const frictionBudget = Math.max(0.25, 1.0 - Math.abs(magic) * 0.55);
+  return {
+    lateralForceFactor,
+    longitudinalCapacityFactor: frictionBudget * effectiveMu,
+  };
+}
+
+/**
+ * Smooth rubber-banding pace adjustment for Paddock AI rival cars.
+ */
+export function computeAiRubberBandSpeed(
+  baseCruiseMs: number,
+  signedProgressGapMeters: number, // positive => AI is ahead of player
+): number {
+  const adjust = Math.max(-3.6, Math.min(4.8, -signedProgressGapMeters * 0.14));
+  return Math.max(10.5, Math.min(28.5, baseCruiseMs + adjust));
 }

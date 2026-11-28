@@ -6,22 +6,29 @@ import {
   RING_LAGOON_VIADUCT,
   SOUTH_COVE_BRIDGE,
   clampDt,
+  computeAiRubberBandSpeed,
   computeBridgeSurfaceY,
   computeDrivingParamsForVehicle,
+  computeEngineTorqueAndGear,
   computeGroundHeight,
+  computePacejkaTyreForces,
   computeSafeRecoveryPose,
   createInitialDoubleJumpState,
   createInitialDriftScoreState,
   evaluateWaterPhysics,
   findNearestLandmark,
+  getAssistProfile,
   getBridgeColliderSegments,
+  getSurfaceGripFactor,
   getZoneName,
   isVehicleOverturned,
+  sampleSurfaceType,
   speedMsToKmh,
   stepDoubleJumpState,
   stepDriftScoring,
   stepPlanarDriving,
 } from './physicsMath';
+import { computeExplorerRank, computeRaceMedal } from './progression';
 import {
   AMPHIBIOUS_LAGOON_BOUNDS,
   EMERALD_LAGOON_BOUNDS,
@@ -902,4 +909,81 @@ test('15-mission catalog, 4 rim styles, 6 accessories, and ChallengeManager exec
   }
   assert.equal(cm.getActiveChallengeHud().status, 'completed');
   assert.equal((ftDone as { completeChallengeId?: string }).completeChallengeId, 'forest-trail');
+});
+
+test('5-gear engine torque, Pacejka tyre forces, assist profiles, surface grip & AI rubber banding behave deterministically', () => {
+  const rev = computeEngineTorqueAndGear(-3, 0, 26);
+  assert.equal(rev.gear, 0);
+  const low = computeEngineTorqueAndGear(2.5, 1, 26);
+  const top = computeEngineTorqueAndGear(24, 1, 26);
+  assert.equal(low.gear, 1);
+  assert.equal(top.gear, 5);
+  assert.ok(low.rpm >= 950 && top.rpm <= 7200);
+  assert.ok(low.torqueFactor > top.torqueFactor);
+
+  const gripSlip = computePacejkaTyreForces({ slipAngleRad: 0.12, normalLoadN: 3000, gripMu: 1.0, handbrake: false });
+  const driftSlip = computePacejkaTyreForces({ slipAngleRad: 0.35, normalLoadN: 3000, gripMu: 1.0, handbrake: true });
+  assert.ok(Math.abs(gripSlip.lateralForceFactor) > Math.abs(driftSlip.lateralForceFactor));
+  assert.ok(gripSlip.longitudinalCapacityFactor > driftSlip.longitudinalCapacityFactor);
+
+  assert.equal(sampleSurfaceType(0, 0, 0, false), 'asphalt');
+  assert.equal(sampleSurfaceType(40, -22, 0, true), 'wood');
+  assert.ok(getSurfaceGripFactor('asphalt', 0) > getSurfaceGripFactor('asphalt', 1));
+  assert.ok(getSurfaceGripFactor('asphalt', 0) > getSurfaceGripFactor('sand', 0));
+
+  const easy = getAssistProfile('easy');
+  const pro = getAssistProfile('pro');
+  assert.ok(easy.lateralAssist > pro.lateralAssist);
+  assert.ok(easy.spinDamping > pro.spinDamping);
+
+  assert.ok(computeAiRubberBandSpeed(18, 20) < 18);
+  assert.ok(computeAiRubberBandSpeed(18, -20) > 18);
+});
+
+test('saveValidation preserves assistLevel/dayNightCycle/audioCaptions and progression computes Explorer Rank & Race Medals', () => {
+  const saved = parseVersionedSave(
+    JSON.stringify({
+      settings: {
+        weatherMode: 'storm',
+        assistLevel: 'pro',
+        dayNightCycle: true,
+        audioCaptions: true,
+      },
+    }),
+  );
+  assert.equal(saved.settings.weatherMode, 'storm');
+  assert.equal(saved.settings.assistLevel, 'pro');
+  assert.equal(saved.settings.dayNightCycle, true);
+  assert.equal(saved.settings.audioCaptions, true);
+
+  const starterRank = computeExplorerRank({
+    unlockedAchievements: [],
+    discoveredLandmarks: [],
+    openedProjects: [],
+    collectedIds: [],
+    discoveredSecrets: [],
+    completedChallenges: [],
+    bestLapSeconds: null,
+    distanceDrivenMeters: 0,
+  });
+  assert.equal(starterRank.level, 1);
+  assert.equal(starterRank.rankTitle, 'Island Visitor');
+
+  const highRank = computeExplorerRank({
+    unlockedAchievements: ['first-drive', 'world-explorer', 'race-champion'],
+    discoveredLandmarks: WORLD_LANDMARKS.map((l) => l.id),
+    openedProjects: PORTFOLIO_PROJECTS.map((p) => p.slug),
+    collectedIds: ['orb-react', 'orb-three', 'orb-sql'],
+    discoveredSecrets: ['north-ridge'],
+    completedChallenges: ['delivery', 'sql', 'rfid'],
+    bestLapSeconds: 9.1,
+    distanceDrivenMeters: 6000,
+  });
+  assert.ok(highRank.level >= 4);
+  assert.ok(highRank.xp > 900);
+
+  assert.equal(computeRaceMedal(8.9), 'Gold');
+  assert.equal(computeRaceMedal(12.2), 'Silver');
+  assert.equal(computeRaceMedal(16.5), 'Bronze');
+  assert.equal(computeRaceMedal(null), null);
 });

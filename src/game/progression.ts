@@ -453,3 +453,66 @@ export function getSkillCategoriesWithCounts() {
     skills: SKILLS_CATALOG.filter((s) => s.category === cat),
   }));
 }
+
+export interface ExplorerRankSummary {
+  xp: number;
+  level: number;
+  rankTitle: string;
+  nextRankTitle: string | null;
+  currentLevelXp: number;
+  nextLevelXp: number;
+  pct: number;
+}
+
+const RANK_TIERS = [
+  { level: 1, minXp: 0, title: 'Island Visitor' },
+  { level: 2, minXp: 200, title: 'Road Pathfinder' },
+  { level: 3, minXp: 500, title: 'Circuit Challenger' },
+  { level: 4, minXp: 950, title: 'Expedition Specialist' },
+  { level: 5, minXp: 1500, title: 'Master Navigator' },
+] as const;
+
+export function computeExplorerRank(input: ProgressionInput): ExplorerRankSummary {
+  const achievementXp = input.unlockedAchievements.reduce((sum, id) => {
+    const def = ACHIEVEMENTS_LIST.find((a) => a.id === id);
+    return sum + (def ? def.points * 2 : 40);
+  }, 0);
+  const landmarkXp = input.discoveredLandmarks.length * 45;
+  const projectXp = input.openedProjects.length * 25;
+  const collectibleXp = input.collectedIds.length * 25;
+  const secretXp = input.discoveredSecrets.length * 75;
+  const challengeXp = input.completedChallenges.length * 60;
+  const distanceXp = Math.min(250, Math.floor((input.distanceDrivenMeters || 0) / 50));
+
+  const xp =
+    achievementXp + landmarkXp + projectXp + collectibleXp + secretXp + challengeXp + distanceXp;
+
+  let currentIdx = 0;
+  for (let i = 0; i < RANK_TIERS.length; i++) {
+    if (xp >= RANK_TIERS[i].minXp) currentIdx = i;
+  }
+
+  const current = RANK_TIERS[currentIdx];
+  const next = RANK_TIERS[currentIdx + 1] ?? null;
+  const currentLevelXp = current.minXp;
+  const nextLevelXp = next ? next.minXp : Math.max(2000, xp);
+  const span = Math.max(1, nextLevelXp - currentLevelXp);
+  const pct = next ? Math.min(100, Math.max(0, Math.round(((xp - currentLevelXp) / span) * 100))) : 100;
+
+  return {
+    xp,
+    level: current.level,
+    rankTitle: current.title,
+    nextRankTitle: next ? next.title : null,
+    currentLevelXp,
+    nextLevelXp,
+    pct,
+  };
+}
+
+export function computeRaceMedal(lapSeconds: number | null): 'Gold' | 'Silver' | 'Bronze' | null {
+  if (lapSeconds === null || !Number.isFinite(lapSeconds) || lapSeconds <= 0) return null;
+  if (lapSeconds <= 9.5) return 'Gold';
+  if (lapSeconds <= 14.0) return 'Silver';
+  return 'Bronze';
+}

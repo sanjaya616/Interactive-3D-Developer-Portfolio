@@ -20,14 +20,27 @@ import {
 } from '../data/portfolioData';
 import type { CollectibleKind, QualityLevel, WeatherMode, WindMode } from '../types/portfolio';
 import { createAtmosphereSystem } from './atmosphereSystem';
+import { createAiTrafficSystem, type AiTrafficFrameInput } from './aiTraffic';
 import { computeBridgeSurfaceY, computeGroundHeight } from './physicsMath';
 import { createWorldProceduralTextures } from './proceduralTextures';
+import {
+  CRATE_YARD_DEFS,
+  auditPlacedProps,
+  buildManagedProps,
+} from './propPlacement';
 import { buildBridgesAndRoadNetwork } from './bridgesAndRoads';
 import { createVegetationSystem } from './vegetationSystem';
 import { resolveWindProfile } from './vegetationPlacement';
 import { createWaterSystem } from './waterSystem';
 import { MOORED_BOAT_ANCHOR, WATER_BASE_Y } from './waterWaveMath';
 import {
+  OUTER_TERRAIN_SPAN,
+  TERRAIN_CELLS,
+  TERRAIN_SPAN,
+  WORLD_HALF_SPAN,
+} from './worldConstants';
+import {
+  BUILDING_FOOTPRINTS,
   WEST_RIDGE_TUNNEL_DEF,
   isPointClearForProp,
   validateWorldLayout,
@@ -108,35 +121,16 @@ export interface WorldBuildResult {
     isSoftwareGl?: boolean,
   ) => void;
   setWindMode: (mode: WindMode) => void;
+  setDayNightCycle: (enabled: boolean) => void;
+  updateSunTarget: (px: number, pz: number) => void;
+  updatePlayerContext: (px: number, py: number, pz: number, camX: number, camZ: number) => void;
+  updateAiTraffic: (input: AiTrafficFrameInput) => { companionDroneText: string };
+  updateGpsRoute: (points: readonly { x: number; z: number }[] | null, colorHex?: string) => void;
+  setRoadLayerDebug: (enabled: boolean) => void;
+  setPropAuditVisible: (visible: boolean) => void;
+  setAllOrbsCollected: (collectedAll: boolean) => void;
   updateEnvironment: (elapsed: number, dt: number) => void;
   dispose: () => void;
-}
-
-function createSandTexture(): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 256;
-  const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#E6C28C';
-  ctx.fillRect(0, 0, 256, 256);
-
-  for (let i = 0; i < 1800; i++) {
-    const x = (i * 79) % 256;
-    const y = (i * 151) % 256;
-    const r = 1 + (i % 3) * 0.7;
-    ctx.fillStyle =
-      i % 2 === 0 ? 'rgba(176, 128, 72, 0.24)' : 'rgba(255, 238, 206, 0.24)';
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(44, 44);
-  return tex;
 }
 
 function createSignTexture(
@@ -277,9 +271,7 @@ export function buildWorldEnvironment(
   const dynamicProps: DynamicPropDef[] = [];
   const collectibles: CollectibleItem[] = [];
 
-  const floatingSigns: { group: THREE.Group; baseY: number; phase: number }[] = [];
-  const indicatorDiamonds: { mesh: THREE.Mesh; baseY: number; phase: number }[] = [];
-  const techSymbols: THREE.Mesh[] = [];
+  const techSymbols: { mesh: THREE.Mesh; baseY: number }[] = [];
   const soaringBirds: { grp: THREE.Group; cx: number; cz: number; radius: number; speed: number; alt: number; phase: number }[] = [];
   const windFlags: {
     seg1: THREE.Mesh;
@@ -346,6 +338,7 @@ export function buildWorldEnvironment(
   sun.shadow.bias = -0.00035;
   sun.shadow.normalBias = 0.02;
   scene.add(sun);
+  scene.add(sun.target);
 
   const coolFill = new THREE.DirectionalLight('#9CE4DF', 0.34);
   coolFill.position.set(-60, 32, -48);
@@ -408,20 +401,21 @@ export function buildWorldEnvironment(
     windFlags.push({ seg1, seg2, seg3, phase });
   };
 
-  // 1. Sculpted 280x280 Terrain Mesh with vertex color biomes + subtle wind-ripple bump
-  const sandTex = createSandTexture();
-  sandTex.anisotropy = maxAnisotropy;
-  textures.push(sandTex);
-
-  const terrainGeo = new THREE.PlaneGeometry(360, 360, 144, 144);
+  // 1. Sculpted 360x360 High-Resolution Terrain (2m cells synced with Rapier) + Scenic Valley Skirt & Seamless Shader Biomes
+  const terrainGeo = new THREE.PlaneGeometry(
+    TERRAIN_SPAN,
+    TERRAIN_SPAN,
+    TERRAIN_CELLS,
+    TERRAIN_CELLS,
+  );
   terrainGeo.rotateX(-Math.PI / 2);
   const tPos = terrainGeo.attributes.position;
   const tCol = new Float32Array(tPos.count * 3);
-  const sandTint = new THREE.Color('#FFF4DF');
-  const grassTint = new THREE.Color('#97BF78');
-  const forestTint = new THREE.Color('#6C9F5E');
-  const shoreTint = new THREE.Color('#DFBE90');
-  const ridgeTint = new THREE.Color('#C9A57C');
+  const sandTint = new THREE.Color('#F3DEC0');
+  const grassTint = new THREE.Color('#8FB86E');
+  const forestTint = new THREE.Color('#5F8F54');
+  const shoreTint = new THREE.Color('#DEC196');
+  const ridgeTint = new THREE.Color('#BFA07C');
   const tempCol = new THREE.Color();
 
   for (let i = 0; i < tPos.count; i++) {
@@ -431,13 +425,13 @@ export function buildWorldEnvironment(
     tPos.setY(i, y);
 
     const radial = Math.hypot(x, z);
-    if (y < -0.1) {
+    if (y < -0.08) {
       tempCol.copy(shoreTint);
-    } else if (x < -58 && z < -46) {
-      tempCol.copy(grassTint).lerp(forestTint, 0.55);
+    } else if (x < -56 && z < -44) {
+      tempCol.copy(grassTint).lerp(forestTint, 0.58);
     } else if (radial > 142) {
-      tempCol.copy(sandTint).lerp(ridgeTint, 0.65);
-    } else if (y > 1.05 || (Math.sin(x * 0.075) * Math.cos(z * 0.075) > 0.25 && radial > 26)) {
+      tempCol.copy(sandTint).lerp(ridgeTint, 0.62);
+    } else if (y > 1.0 || (Math.sin(x * 0.075) * Math.cos(z * 0.075) > 0.22 && radial > 26)) {
       tempCol.copy(sandTint).lerp(grassTint, 0.62);
     } else {
       tempCol.copy(sandTint);
@@ -451,41 +445,171 @@ export function buildWorldEnvironment(
   geometries.push(terrainGeo);
 
   const terrainMat = new THREE.MeshStandardMaterial({
-    map: sandTex,
-    bumpMap: procTex.sandBump,
-    bumpScale: 0.14,
     vertexColors: true,
     roughness: 0.9,
     metalness: 0.02,
   });
+  terrainMat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying vec3 vTerrainWorldPos;
+        varying vec3 vTerrainWorldNorm;`,
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        vTerrainWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        vTerrainWorldNorm = normalize(mat3(modelMatrix) * objectNormal);`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying vec3 vTerrainWorldPos;
+        varying vec3 vTerrainWorldNorm;
+        float terrainHash21(vec2 p) {
+          p = fract(p * vec2(123.34, 456.21));
+          p += dot(p, p + 45.32);
+          return fract(p.x * p.y);
+        }
+        float terrainNoise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          float a = terrainHash21(i);
+          float b = terrainHash21(i + vec2(1.0, 0.0));
+          float c = terrainHash21(i + vec2(0.0, 1.0));
+          float d = terrainHash21(i + vec2(1.0, 1.0));
+          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        }`,
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        float nLarge = terrainNoise(vTerrainWorldPos.xz * 0.055);
+        float nMed = terrainNoise(vTerrainWorldPos.xz * 0.22);
+        float nFine = terrainNoise(vTerrainWorldPos.xz * 0.85);
+        float fbm = nLarge * 0.56 + nMed * 0.30 + nFine * 0.14;
+        float slope = 1.0 - clamp(vTerrainWorldNorm.y, 0.0, 1.0);
+        float rockMask = smoothstep(0.14, 0.34, slope);
+        float grassMask = smoothstep(-0.02, 0.55, vTerrainWorldPos.y) * (1.0 - rockMask);
+        vec3 warmSand = vec3(0.92, 0.82, 0.67);
+        vec3 lushGrass = vec3(0.45, 0.64, 0.36);
+        vec3 rockCol = vec3(0.56, 0.46, 0.37);
+        vec3 biomeCol = mix(warmSand, lushGrass, grassMask * clamp(fbm * 1.15, 0.0, 1.0));
+        biomeCol = mix(biomeCol, rockCol, rockMask);
+        diffuseColor.rgb = mix(diffuseColor.rgb, biomeCol, 0.36) * (0.92 + fbm * 0.16);`,
+      );
+  };
   materials.push(terrainMat);
 
   const terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
   terrainMesh.receiveShadow = true;
   scene.add(terrainMesh);
 
-  // Distant Low-Poly Horizon Mountain Silhouette Ring (outside 184m playable valley)
-  const cliffGeo = new THREE.ConeGeometry(22, 30, 6);
-  const cliffMat = new THREE.MeshStandardMaterial({ color: 0xbfa084, roughness: 0.95 });
-  geometries.push(cliffGeo);
-  materials.push(cliffMat);
-  const cliffCount = 42;
-  const cliffInst = new THREE.InstancedMesh(cliffGeo, cliffMat, cliffCount);
-  const dummy = new THREE.Object3D();
-  for (let i = 0; i < cliffCount; i++) {
-    const a = (i / cliffCount) * Math.PI * 2;
-    const rad = 184 + (i % 3) * 11;
-    const cx = Math.cos(a) * rad;
-    const cz = Math.sin(a) * rad;
-    dummy.position.set(cx, 8.5 + (i % 4) * 2.4, cz);
-    dummy.rotation.set(0, a + i * 0.4, 0);
-    dummy.scale.set(1.15 + (i % 3) * 0.35, 0.95 + (i % 4) * 0.28, 1.05 + (i % 2) * 0.4);
-    dummy.updateMatrix();
-    cliffInst.setMatrixAt(i, dummy.matrix);
+  // Seamless Scenic Outer Valley Skirt extending from ±176m out toward the distant FBM ridges
+  const outerSkirtGeo = new THREE.RingGeometry(176, OUTER_TERRAIN_SPAN * 0.72, 72, 4);
+  outerSkirtGeo.rotateX(-Math.PI / 2);
+  const oPos = outerSkirtGeo.attributes.position;
+  const oCol = new Float32Array(oPos.count * 3);
+  for (let i = 0; i < oPos.count; i++) {
+    const ox = oPos.getX(i);
+    const oz = oPos.getZ(i);
+    const r = Math.hypot(ox, oz);
+    const baseY = computeGroundHeight(ox, oz);
+    const lift = Math.max(0, (r - 178) * 0.16);
+    oPos.setY(i, baseY + lift);
+    tempCol.copy(sandTint).lerp(ridgeTint, Math.min(1, 0.5 + (r - 176) / 140));
+    oCol[i * 3] = tempCol.r;
+    oCol[i * 3 + 1] = tempCol.g;
+    oCol[i * 3 + 2] = tempCol.b;
   }
-  cliffInst.instanceMatrix.needsUpdate = true;
-  cliffInst.computeBoundingSphere();
-  scene.add(cliffInst);
+  outerSkirtGeo.setAttribute('color', new THREE.BufferAttribute(oCol, 3));
+  outerSkirtGeo.computeVertexNormals();
+  geometries.push(outerSkirtGeo);
+  const outerSkirtMesh = new THREE.Mesh(outerSkirtGeo, terrainMat);
+  outerSkirtMesh.receiveShadow = true;
+  scene.add(outerSkirtMesh);
+
+  // Continuous Sandstone Perimeter Parapet Wall & Marker Posts along ±WORLD_HALF_SPAN (±156m)
+  const parapetMat = new THREE.MeshStandardMaterial({ color: 0xd9bf9a, roughness: 0.88 });
+  const parapetCapMat = new THREE.MeshStandardMaterial({ color: 0xcc5318, roughness: 0.68 });
+  materials.push(parapetMat, parapetCapMat);
+  const wallLen = WORLD_HALF_SPAN * 2 + 1.6;
+  const nsWallGeo = new THREE.BoxGeometry(wallLen, 1.35, 0.75);
+  const ewWallGeo = new THREE.BoxGeometry(0.75, 1.35, wallLen);
+  const perimPostGeo = new THREE.BoxGeometry(1.05, 1.85, 1.05);
+  geometries.push(nsWallGeo, ewWallGeo, perimPostGeo);
+
+  for (const sz of [-WORLD_HALF_SPAN, WORLD_HALF_SPAN]) {
+    const w = new THREE.Mesh(nsWallGeo, parapetMat);
+    w.position.set(0, 0.65, sz);
+    w.receiveShadow = true;
+    w.castShadow = true;
+    scene.add(w);
+  }
+  for (const sx of [-WORLD_HALF_SPAN, WORLD_HALF_SPAN]) {
+    const w = new THREE.Mesh(ewWallGeo, parapetMat);
+    w.position.set(sx, 0.65, 0);
+    w.receiveShadow = true;
+    w.castShadow = true;
+    scene.add(w);
+  }
+  const postCoords: [number, number][] = [];
+  for (let p = -WORLD_HALF_SPAN; p <= WORLD_HALF_SPAN; p += 26) {
+    postCoords.push([p, -WORLD_HALF_SPAN], [p, WORLD_HALF_SPAN]);
+    if (Math.abs(p) < WORLD_HALF_SPAN) {
+      postCoords.push([-WORLD_HALF_SPAN, p], [WORLD_HALF_SPAN, p]);
+    }
+  }
+  const perimPostInst = new THREE.InstancedMesh(perimPostGeo, parapetCapMat, postCoords.length);
+  const dummy = new THREE.Object3D();
+  postCoords.forEach(([px, pz], i) => {
+    const gy = computeGroundHeight(px, pz);
+    dummy.position.set(px, gy + 0.92, pz);
+    dummy.rotation.set(0, 0, 0);
+    dummy.scale.setScalar(1);
+    dummy.updateMatrix();
+    perimPostInst.setMatrixAt(i, dummy.matrix);
+  });
+  perimPostInst.instanceMatrix.needsUpdate = true;
+  scene.add(perimPostInst);
+
+  // Dense Perimeter Pine Tree Line outside playable wall (±160m..±176m)
+  const pTrunkGeo = new THREE.CylinderGeometry(0.32, 0.45, 2.8, 6);
+  const pConeGeo = new THREE.ConeGeometry(2.1, 5.4, 7);
+  geometries.push(pTrunkGeo, pConeGeo);
+  const pTrunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4b35, roughness: 0.9 });
+  const pConeMat = new THREE.MeshStandardMaterial({ color: 0x456e47, roughness: 0.85 });
+  materials.push(pTrunkMat, pConeMat);
+  const borderTreeCoords: { x: number; z: number; s: number }[] = [];
+  for (let i = 0; i < 84; i++) {
+    const t = -WORLD_HALF_SPAN - 4 + ((i % 21) / 20) * (WORLD_HALF_SPAN * 2 + 8);
+    const side = Math.floor(i / 21);
+    const jitter = ((i * 37) % 11) + 4;
+    const x = side === 0 ? -WORLD_HALF_SPAN - jitter : side === 1 ? WORLD_HALF_SPAN + jitter : t;
+    const z = side === 2 ? -WORLD_HALF_SPAN - jitter : side === 3 ? WORLD_HALF_SPAN + jitter : t;
+    borderTreeCoords.push({ x, z, s: 0.9 + ((i * 13) % 5) * 0.14 });
+  }
+  const btTrunkInst = new THREE.InstancedMesh(pTrunkGeo, pTrunkMat, borderTreeCoords.length);
+  const btConeInst = new THREE.InstancedMesh(pConeGeo, pConeMat, borderTreeCoords.length);
+  borderTreeCoords.forEach((bt, i) => {
+    const gy = computeGroundHeight(bt.x, bt.z);
+    dummy.position.set(bt.x, gy + 1.4 * bt.s, bt.z);
+    dummy.rotation.set(0, i * 0.7, 0);
+    dummy.scale.setScalar(bt.s);
+    dummy.updateMatrix();
+    btTrunkInst.setMatrixAt(i, dummy.matrix);
+
+    dummy.position.set(bt.x, gy + 4.4 * bt.s, bt.z);
+    dummy.updateMatrix();
+    btConeInst.setMatrixAt(i, dummy.matrix);
+  });
+  btTrunkInst.instanceMatrix.needsUpdate = true;
+  btConeInst.instanceMatrix.needsUpdate = true;
+  scene.add(btTrunkInst, btConeInst);
 
   // 2. Stylized Coastal Water System (Emerald Lagoon & South Cove)
   const waterSystem = createWaterSystem(scene, geometries, materials);
@@ -659,61 +783,39 @@ export function buildWorldEnvironment(
   scene.add(lhGroup);
   staticColliders.push({ x: 73, y: lhGy + 3.5, z: -26, hx: 2.0, hy: 4.0, hz: 2.0, kind: 'prop' });
 
-  // 5. Vaulted Arched West Ridge Tunnel aligned with the Paddock approach spoke
+  // 5. Smooth Arched Vault West Ridge Tunnel aligned with Paddock approach spoke (zero floating crag blobs)
   const tunnelGroup = new THREE.Group();
   tunnelGroup.position.set(WEST_RIDGE_TUNNEL_DEF.centerX, 0, WEST_RIDGE_TUNNEL_DEF.centerZ);
   tunnelGroup.rotation.y = WEST_RIDGE_TUNNEL_DEF.yaw;
 
-  const rockRidgeMat = new THREE.MeshStandardMaterial({ color: 0xb98a5e, roughness: 0.9 });
   const lampGlowMat = new THREE.MeshStandardMaterial({
     color: 0xffe4a0,
     emissive: 0xffb84d,
-    emissiveIntensity: 1.25,
+    emissiveIntensity: 1.35,
   });
-  materials.push(rockRidgeMat, lampGlowMat);
+  materials.push(lampGlowMat);
 
   const tunArchGeo = createTunnelArchGeo(WEST_RIDGE_TUNNEL_DEF.length);
-  const tunPortalRimGeo = new THREE.TorusGeometry(4.95, 0.42, 8, 18, Math.PI);
-  const tunMoundGeo = new THREE.DodecahedronGeometry(1.0, 1);
-  const tunLampGeo = new THREE.SphereGeometry(0.28, 10, 8);
-  geometries.push(tunArchGeo, tunPortalRimGeo, tunMoundGeo, tunLampGeo);
+  const tunPortalStoneGeo = new THREE.TorusGeometry(5.15, 0.56, 8, 20, Math.PI);
+  const tunStripLampGeo = new THREE.BoxGeometry(0.45, 0.14, 3.2);
+  geometries.push(tunArchGeo, tunPortalStoneGeo, tunStripLampGeo);
 
   const tunVault = new THREE.Mesh(tunArchGeo, stoneMat);
   tunVault.castShadow = true;
   tunVault.receiveShadow = true;
   tunnelGroup.add(tunVault);
 
-  const portalOffsetZ = WEST_RIDGE_TUNNEL_DEF.halfLength - 0.1;
+  const portalOffsetZ = WEST_RIDGE_TUNNEL_DEF.halfLength - 0.12;
   for (const pz of [-portalOffsetZ, portalOffsetZ]) {
-    const portalRib = new THREE.Mesh(tunPortalRimGeo, terracottaMat);
+    const portalRib = new THREE.Mesh(tunPortalStoneGeo, creamMat);
     portalRib.position.set(0, 2.65, pz);
     portalRib.castShadow = true;
     tunnelGroup.add(portalRib);
   }
 
-  // Faceted rock crags seated flush on the outer stone vault (all >4.8m width, >7.35m crown)
-  for (const [mx, my, mz, sx, sy, sz, ry] of [
-    [-7.3, 2.1, -2.1, 2.35, 2.6, 3.2, 0.25],
-    [-7.3, 2.0, 2.1, 2.35, 2.5, 3.2, -0.35],
-    [-6.2, 5.1, 0, 1.4, 2.1, 4.3, 0.12],
-    [7.3, 2.1, -2.1, 2.35, 2.6, 3.2, -0.25],
-    [7.3, 2.0, 2.1, 2.35, 2.5, 3.2, 0.35],
-    [6.2, 5.1, 0, 1.4, 2.1, 4.3, -0.12],
-    [0, 8.75, -1.6, 3.5, 1.35, 3.3, 0.28],
-    [0, 8.75, 1.6, 3.5, 1.35, 3.3, -0.28],
-  ]) {
-    const mound = new THREE.Mesh(tunMoundGeo, rockRidgeMat);
-    mound.position.set(mx, my, mz);
-    mound.scale.set(sx, sy, sz);
-    mound.rotation.y = ry;
-    mound.castShadow = true;
-    mound.receiveShadow = true;
-    tunnelGroup.add(mound);
-  }
-
-  for (const lz of [-3.4, 0, 3.4]) {
-    const lamp = new THREE.Mesh(tunLampGeo, lampGlowMat);
-    lamp.position.set(0, 6.6, lz);
+  for (const lz of [-5.8, 0, 5.8]) {
+    const lamp = new THREE.Mesh(tunStripLampGeo, lampGlowMat);
+    lamp.position.set(0, 6.85, lz);
     tunnelGroup.add(lamp);
   }
   scene.add(tunnelGroup);
@@ -731,7 +833,7 @@ export function buildWorldEnvironment(
       hy: 2.5,
       hz: WEST_RIDGE_TUNNEL_DEF.halfLength,
       ry: WEST_RIDGE_TUNNEL_DEF.yaw,
-      ignoreCamera: true,
+      ignoreCamera: false,
       kind: 'tunnel-wall',
     });
   }
@@ -780,22 +882,27 @@ export function buildWorldEnvironment(
     { x: 4.8, y: 2.6, z: -12.8, hx: 0.5, hy: 2.6, hz: 0.5, kind: 'prop' },
   );
 
-  // 7. Build All 9 Bespoke Architectural Landmarks
+  // 7. Build All 9 Bespoke Architectural Landmarks synced to BUILDING_FOOTPRINTS
   const parkingMat = new THREE.MeshStandardMaterial({ color: 0x453e3a, roughness: 0.88 });
-  const diamondGeo = new THREE.OctahedronGeometry(0.55, 0);
   const padGeo = new THREE.RingGeometry(2.9, 3.55, 36);
   padGeo.rotateX(-Math.PI / 2);
   const parkPadGeo = new THREE.PlaneGeometry(9.6, 6.4);
   parkPadGeo.rotateX(-Math.PI / 2);
-  geometries.push(diamondGeo, padGeo, parkPadGeo);
+  const signPostGeo = new THREE.CylinderGeometry(0.11, 0.14, 5.2, 8);
+  const signBackerGeo = new THREE.BoxGeometry(6.36, 2.46, 0.16);
+  geometries.push(padGeo, parkPadGeo, signPostGeo, signBackerGeo);
   materials.push(parkingMat);
 
-  WORLD_LANDMARKS.forEach((lm, idx) => {
+  WORLD_LANDMARKS.forEach((lm) => {
+    const footprint = BUILDING_FOOTPRINTS.find((b) => b.landmarkId === lm.id);
     const baseGroundY = lm.position.y ?? computeGroundHeight(lm.position.x, lm.position.z);
+    const buildGroundY = footprint
+      ? computeGroundHeight(footprint.buildX, footprint.buildZ)
+      : baseGroundY;
     const dirToOrigin = new THREE.Vector2(-lm.position.x, -lm.position.z).normalize();
-    const buildX = lm.position.x - dirToOrigin.x * 5.8;
-    const buildZ = lm.position.z - dirToOrigin.y * 5.8;
-    const yaw = Math.atan2(dirToOrigin.x, dirToOrigin.y);
+    const buildX = footprint?.buildX ?? lm.position.x - dirToOrigin.x * 5.8;
+    const buildZ = footprint?.buildZ ?? lm.position.z - dirToOrigin.y * 5.8;
+    const yaw = footprint?.yaw ?? Math.atan2(dirToOrigin.x, dirToOrigin.y);
 
     const accentMat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(lm.color),
@@ -804,7 +911,7 @@ export function buildWorldEnvironment(
     });
     materials.push(accentMat);
 
-    // Parking apron + crisp painted border
+    // Parking apron + glowing ground pad ring (no floating diamonds)
     const parkMesh = new THREE.Mesh(parkPadGeo, parkingMat);
     parkMesh.position.set(lm.position.x, baseGroundY + 0.032, lm.position.z);
     parkMesh.rotation.y = yaw;
@@ -821,11 +928,6 @@ export function buildWorldEnvironment(
     const padMesh = new THREE.Mesh(padGeo, padMat);
     padMesh.position.set(lm.position.x, baseGroundY + 0.06, lm.position.z);
     scene.add(padMesh);
-
-    const indicator = new THREE.Mesh(diamondGeo, padMat);
-    indicator.position.set(lm.position.x, baseGroundY + 3.25, lm.position.z);
-    scene.add(indicator);
-    indicatorDiamonds.push({ mesh: indicator, baseY: baseGroundY + 3.25, phase: idx * 0.9 });
 
     // Zone Entrance Gateway Bollards (flanking outside 9.6m approach apron)
     const bollardGeo = new THREE.CylinderGeometry(0.22, 0.28, 1.85, 8);
@@ -846,7 +948,7 @@ export function buildWorldEnvironment(
     }
 
     const grp = new THREE.Group();
-    grp.position.set(buildX, baseGroundY, buildZ);
+    grp.position.set(buildX, buildGroundY, buildZ);
     grp.rotation.y = yaw;
 
     // Stepped architectural plinth
@@ -1038,14 +1140,26 @@ export function buildWorldEnvironment(
         grp.add(ped, capOrb);
       });
 
+      const pedSymGeo = new THREE.CylinderGeometry(0.28, 0.36, 0.72, 8);
+      geometries.push(pedSymGeo);
+      const s1Ped = new THREE.Mesh(pedSymGeo, roofDarkMat);
+      s1Ped.position.set(-2.4, 4.5, 0);
       const s1 = new THREE.Mesh(sym1Geo, accentMat);
-      s1.position.set(-2.4, 5.8, 0);
+      s1.position.set(-2.4, 5.25, 0);
+      const s2Ped = new THREE.Mesh(pedSymGeo, roofDarkMat);
+      s2Ped.position.set(0, 5.15, 0);
       const s2 = new THREE.Mesh(sym2Geo, coolScreenGlowMat);
-      s2.position.set(0, 6.8, 0);
+      s2.position.set(0, 5.95, 0);
+      const s3Ped = new THREE.Mesh(pedSymGeo, roofDarkMat);
+      s3Ped.position.set(2.4, 4.5, 0);
       const s3 = new THREE.Mesh(sym3Geo, accentMat);
-      s3.position.set(2.4, 5.8, 0);
-      techSymbols.push(s1, s2, s3);
-      grp.add(hex, dome, ringCap, s1, s2, s3);
+      s3.position.set(2.4, 5.25, 0);
+      techSymbols.push(
+        { mesh: s1, baseY: 5.25 },
+        { mesh: s2, baseY: 5.95 },
+        { mesh: s3, baseY: 5.25 },
+      );
+      grp.add(hex, dome, ringCap, s1Ped, s1, s2Ped, s2, s3Ped, s3);
     } else if (lm.id === 'lookout') {
       // Sculpted Sandstone Terrace + Curved Parapet + 4 Tapered Milestone Obelisks + Brass Telescope
       const archWallGeo = new THREE.CylinderGeometry(3.6, 3.8, 0.85, 16, 1, true, Math.PI * 0.65, Math.PI * 0.7);
@@ -1307,23 +1421,41 @@ export function buildWorldEnvironment(
 
     scene.add(grp);
 
+    const colliderHx = footprint?.colliderHx ?? 3.6;
+    const colliderHy = footprint?.colliderHy ?? 2.6;
+    const colliderHz = footprint?.colliderHz ?? 3.0;
     staticColliders.push({
       x: buildX,
-      y: baseGroundY + 2.2,
+      y: buildGroundY + colliderHy * 0.85,
       z: buildZ,
-      hx: 3.6,
-      hy: 2.5,
-      hz: 2.9,
+      hx: colliderHx,
+      hy: colliderHy,
+      hz: colliderHz,
       ry: yaw,
       kind: 'building',
     });
 
-    // Floating Destination Name Signboard
+    if (import.meta.env.DEV) {
+      grp.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(grp);
+      const meshHx = (box.max.x - box.min.x) * 0.5;
+      const meshHz = (box.max.z - box.min.z) * 0.5;
+      if (Math.abs(meshHx - colliderHx) > 3.2 || Math.abs(meshHz - colliderHz) > 3.2) {
+        console.warn(`[WorldBuildAudit] Building ${lm.id} Box3 vs collider divergence`, {
+          meshHx: Number(meshHx.toFixed(2)),
+          colliderHx,
+          meshHz: Number(meshHz.toFixed(2)),
+          colliderHz,
+        });
+      }
+    }
+
+    // Grounded Post-Mounted Destination Name Signboard (replaces floating aerial sign)
     const signGroup = new THREE.Group();
     const sTex = createSignTexture(lm.title, lm.subtitle, lm.color);
     sTex.anisotropy = maxAnisotropy;
     textures.push(sTex);
-    const sGeo = new THREE.PlaneGeometry(6.2, 2.3);
+    const sGeo = new THREE.PlaneGeometry(6.1, 2.25);
     geometries.push(sGeo);
     const sMat = new THREE.MeshBasicMaterial({
       map: sTex,
@@ -1331,13 +1463,24 @@ export function buildWorldEnvironment(
       toneMapped: false,
     });
     materials.push(sMat);
-    const sMesh = new THREE.Mesh(sGeo, sMat);
-    signGroup.add(sMesh);
-    const signBaseY = baseGroundY + 7.25;
-    signGroup.position.set(buildX, signBaseY, buildZ);
-    signGroup.lookAt(0, signBaseY, 0);
+    const signBacker = new THREE.Mesh(signBackerGeo, roofDarkMat);
+    signBacker.position.set(0, 5.2, 0);
+    signBacker.castShadow = true;
+    const sFront = new THREE.Mesh(sGeo, sMat);
+    sFront.position.set(0, 5.2, 0.09);
+    const sBack = new THREE.Mesh(sGeo, sMat);
+    sBack.position.set(0, 5.2, -0.09);
+    sBack.rotation.y = Math.PI;
+    const postL = new THREE.Mesh(signPostGeo, woodMat);
+    postL.position.set(-2.3, 2.6, 0);
+    postL.castShadow = true;
+    const postR = new THREE.Mesh(signPostGeo, woodMat);
+    postR.position.set(2.3, 2.6, 0);
+    postR.castShadow = true;
+    signGroup.add(postL, postR, signBacker, sFront, sBack);
+    signGroup.position.set(buildX, buildGroundY, buildZ);
+    signGroup.rotation.y = yaw;
     scene.add(signGroup);
-    floatingSigns.push({ group: signGroup, baseY: signBaseY, phase: idx * 0.85 });
   });
 
   // Delivery Dropoff Beacon
@@ -1403,30 +1546,22 @@ export function buildWorldEnvironment(
     staticColliders.push({ ...col, kind: 'tree' });
   }
 
-  // 12. Instanced Sandstone Boulders & Shoreline Rocks
+  // 12. Validated Managed Props Inventory + Instanced Sandstone Boulders
+  const managedProps = buildManagedProps();
   const rockGeo = new THREE.DodecahedronGeometry(1.25, 0);
   geometries.push(rockGeo);
   const rockMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 });
   materials.push(rockMat);
-  const rockCoords: { x: number; z: number }[] = [];
-  for (let i = 0; i < 68; i++) {
-    const a = (i / 68) * Math.PI * 2 + 0.14;
-    const rad = 52 + (i % 5) * 9.5;
-    const rx = Math.cos(a) * rad;
-    const rz = Math.sin(a) * rad;
-    if (!isNearRoadOrBuilding(rx, rz)) rockCoords.push({ x: rx, z: rz });
-  }
-  const rockInst = new THREE.InstancedMesh(rockGeo, rockMat, rockCoords.length);
+  const rockInst = new THREE.InstancedMesh(rockGeo, rockMat, Math.max(1, managedProps.boulders.length));
   rockInst.castShadow = true;
   rockInst.receiveShadow = true;
   const rockColor = new THREE.Color();
-  rockCoords.forEach((rc, i) => {
-    const gy = computeGroundHeight(rc.x, rc.z);
-    const sx = 0.8 + ((i * 19) % 10) * 0.12;
-    const sy = 0.65 + ((i * 13) % 8) * 0.11;
-    dummy.position.set(rc.x, gy + sy * 0.45, rc.z);
-    dummy.rotation.set(i * 0.3, i * 1.1, i * 0.2);
-    dummy.scale.set(sx, sy, sx * 0.9);
+  managedProps.boulders.forEach((rc, i) => {
+    const sx = rc.scale;
+    const sy = rc.scale * 0.78;
+    dummy.position.set(rc.x, rc.y + sy * 0.35, rc.z);
+    dummy.rotation.set(i * 0.25, rc.yaw, i * 0.15);
+    dummy.scale.set(sx, sy, sx * 0.92);
     dummy.updateMatrix();
     rockInst.setMatrixAt(i, dummy.matrix);
     rockColor.set(i % 2 === 0 ? '#D4B08C' : '#BE956E');
@@ -1564,15 +1699,26 @@ export function buildWorldEnvironment(
   });
   scene.add(fishGroup);
 
-  // 14. Collectibles (Orbs, Tokens, Fragments, Secret Relics)
+  // 14. Collectibles (Orbs with Soft Glow Disc & Cone, Tokens, Fragments, Secret Relics)
   const orbCoreGeo = new THREE.SphereGeometry(0.55, 14, 12);
   const orbRingGeo = new THREE.TorusGeometry(0.88, 0.08, 8, 22);
+  const orbConeGeo = new THREE.ConeGeometry(1.15, 3.6, 16, 1, true);
+  const orbDiscGeo = new THREE.CircleGeometry(1.35, 20);
+  orbDiscGeo.rotateX(-Math.PI / 2);
   const tokenGeo = new THREE.CylinderGeometry(0.65, 0.65, 0.18, 16);
   tokenGeo.rotateX(Math.PI / 2);
   const fragGeo = new THREE.OctahedronGeometry(0.66, 0);
   fragGeo.scale(0.8, 1.35, 0.8);
   const secretRelicGeo = new THREE.TorusKnotGeometry(0.45, 0.14, 36, 8);
-  geometries.push(orbCoreGeo, orbRingGeo, tokenGeo, fragGeo, secretRelicGeo);
+  geometries.push(
+    orbCoreGeo,
+    orbRingGeo,
+    orbConeGeo,
+    orbDiscGeo,
+    tokenGeo,
+    fragGeo,
+    secretRelicGeo,
+  );
 
   const orbMat = new THREE.MeshStandardMaterial({
     color: 0x21968b,
@@ -1580,6 +1726,13 @@ export function buildWorldEnvironment(
     emissiveIntensity: 0.72,
     roughness: 0.2,
     metalness: 0.55,
+  });
+  const orbGlowMat = new THREE.MeshBasicMaterial({
+    color: 0x38e2cf,
+    transparent: true,
+    opacity: 0.22,
+    side: THREE.DoubleSide,
+    depthWrite: false,
   });
   const tokenMat = new THREE.MeshStandardMaterial({
     color: 0xffd54f,
@@ -1602,7 +1755,7 @@ export function buildWorldEnvironment(
     roughness: 0.25,
     metalness: 0.65,
   });
-  materials.push(orbMat, tokenMat, fragMat, secretRelicMat);
+  materials.push(orbMat, orbGlowMat, tokenMat, fragMat, secretRelicMat);
 
   for (const colDef of WORLD_COLLECTIBLES) {
     const bridgeY = computeBridgeSurfaceY(colDef.x, colDef.z);
@@ -1610,7 +1763,11 @@ export function buildWorldEnvironment(
     const cg = new THREE.Group();
 
     if (colDef.kind === 'orb') {
-      cg.add(new THREE.Mesh(orbCoreGeo, orbMat), new THREE.Mesh(orbRingGeo, tokenMat));
+      const cone = new THREE.Mesh(orbConeGeo, orbGlowMat);
+      cone.position.y = 0.2;
+      const disc = new THREE.Mesh(orbDiscGeo, orbGlowMat);
+      disc.position.y = -1.32;
+      cg.add(new THREE.Mesh(orbCoreGeo, orbMat), new THREE.Mesh(orbRingGeo, tokenMat), cone, disc);
     } else if (colDef.kind === 'token') {
       cg.add(new THREE.Mesh(tokenGeo, tokenMat), new THREE.Mesh(orbRingGeo, tokenMat));
     } else if (colDef.kind === 'fragment') {
@@ -1632,6 +1789,37 @@ export function buildWorldEnvironment(
       collected: false,
     });
   }
+
+  // All-Orbs (8/8) Golden Lookout Observatory Crown unlocked when all 8 knowledge orbs are found
+  const crownGroup = new THREE.Group();
+  const crownRingGeo = new THREE.TorusGeometry(1.2, 0.16, 10, 28);
+  const crownCoreGeo = new THREE.OctahedronGeometry(0.75, 0);
+  const crownBeamGeo = new THREE.CylinderGeometry(0.45, 1.35, 16, 16, 1, true);
+  geometries.push(crownRingGeo, crownCoreGeo, crownBeamGeo);
+  const crownMat = new THREE.MeshStandardMaterial({
+    color: 0xffd54f,
+    emissive: 0xffb300,
+    emissiveIntensity: 0.9,
+    metalness: 0.78,
+    roughness: 0.18,
+  });
+  const crownBeamMat = new THREE.MeshBasicMaterial({
+    color: 0xffe082,
+    transparent: true,
+    opacity: 0.22,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  materials.push(crownMat, crownBeamMat);
+  const cRing = new THREE.Mesh(crownRingGeo, crownMat);
+  const cCore = new THREE.Mesh(crownCoreGeo, crownMat);
+  const cBeam = new THREE.Mesh(crownBeamGeo, crownBeamMat);
+  cBeam.position.y = 7.2;
+  crownGroup.add(cRing, cCore, cBeam);
+  const lookoutRoofY = computeGroundHeight(0, -81) + 4.4;
+  crownGroup.position.set(0, lookoutRoofY, -81);
+  crownGroup.visible = false;
+  scene.add(crownGroup);
 
   // 14B. Interactive In-World Challenge Props
   const sqlGateRings: THREE.Mesh[] = [];
@@ -1848,7 +2036,6 @@ export function buildWorldEnvironment(
     grp.position.set(ds.x, gy, ds.z);
     grp.rotation.y = ds.rotY;
     scene.add(grp);
-    floatingSigns.push({ group: grp, baseY: gy, phase: idx * 0.8 });
   });
 
   // Amphibious Lagoon Wooden Exit Dock at (-36, 140.5)
@@ -1978,37 +2165,47 @@ export function buildWorldEnvironment(
     ftGates.push(m);
   });
 
-  // 15. Dynamic Physics Crates & Traffic Cones
+  // 15. Validated Managed Props: Fenced Cargo Yards, Safety Cones, Outer Street Lamps, Benches & Contact/CV Kiosk
   const crateGeo = new THREE.BoxGeometry(1.1, 1.1, 1.1);
   const coneGeo = new THREE.ConeGeometry(0.42, 1.05, 8);
-  geometries.push(crateGeo, coneGeo);
+  const fencePostGeo = new THREE.CylinderGeometry(0.11, 0.13, 1.25, 6);
+  const fenceRailGeo = new THREE.BoxGeometry(7.2, 0.12, 0.1);
+  const fenceSideGeo = new THREE.BoxGeometry(0.1, 0.12, 5.2);
+  const benchSeatGeo = new THREE.BoxGeometry(1.9, 0.14, 0.56);
+  const benchLegGeo = new THREE.BoxGeometry(0.14, 0.48, 0.5);
+  const kioskBaseGeo = new THREE.BoxGeometry(1.5, 2.2, 0.72);
+  const kioskScreenGeo = new THREE.PlaneGeometry(1.15, 0.85);
+  const outerLampPostGeo = new THREE.CylinderGeometry(0.08, 0.12, 4.0, 8);
+  const outerLampBulbGeo = new THREE.SphereGeometry(0.24, 10, 8);
+  geometries.push(
+    crateGeo,
+    coneGeo,
+    fencePostGeo,
+    fenceRailGeo,
+    fenceSideGeo,
+    benchSeatGeo,
+    benchLegGeo,
+    kioskBaseGeo,
+    kioskScreenGeo,
+    outerLampPostGeo,
+    outerLampBulbGeo,
+  );
   const crateMat = new THREE.MeshStandardMaterial({ map: procTex.woodPlankAlbedo, roughness: 0.78 });
   const coneMat = new THREE.MeshStandardMaterial({ color: 0xe65448, roughness: 0.52 });
   materials.push(crateMat, coneMat);
 
-  const westPlazaGy = computeGroundHeight(-16.8, -4.2);
-  const eastPlazaGy = computeGroundHeight(16.2, -4.8);
-  const delYardGy = computeGroundHeight(-43.8, 44.6);
-  const cratePositions = [
-    { x: -16.2, y: westPlazaGy + 0.55, z: -4.2 },
-    { x: -17.4, y: westPlazaGy + 0.55, z: -4.2 },
-    { x: -16.8, y: westPlazaGy + 1.68, z: -4.2 },
-    { x: 15.6, y: eastPlazaGy + 0.55, z: -4.8 },
-    { x: 16.8, y: eastPlazaGy + 0.55, z: -4.8 },
-    { x: 16.2, y: eastPlazaGy + 1.68, z: -4.8 },
-    { x: -43.2, y: delYardGy + 0.55, z: 44.6 },
-    { x: -44.4, y: delYardGy + 0.55, z: 44.6 },
-  ];
-  for (const cp of cratePositions) {
+  for (const cp of managedProps.crates) {
+    const cy = cp.y + 0.55;
     const m = new THREE.Mesh(crateGeo, crateMat);
-    m.position.set(cp.x, cp.y, cp.z);
+    m.position.set(cp.x, cy, cp.z);
+    m.rotation.y = cp.yaw;
     m.castShadow = true;
     m.receiveShadow = true;
     scene.add(m);
     dynamicProps.push({
       mesh: m,
       x: cp.x,
-      y: cp.y,
+      y: cy,
       z: cp.z,
       hx: 0.55,
       hy: 0.55,
@@ -2017,30 +2214,67 @@ export function buildWorldEnvironment(
     });
   }
 
+  for (const yard of CRATE_YARD_DEFS) {
+    const gy = computeGroundHeight(yard.centerX, yard.centerZ);
+    const fGrp = new THREE.Group();
+    fGrp.position.set(yard.centerX, gy, yard.centerZ);
+    fGrp.rotation.y = yard.yaw;
+    for (const [fx, fz] of [
+      [-3.55, -2.55],
+      [3.55, -2.55],
+      [-3.55, 2.55],
+      [3.55, 2.55],
+    ]) {
+      const fp = new THREE.Mesh(fencePostGeo, woodMat);
+      fp.position.set(fx, 0.62, fz);
+      fp.castShadow = true;
+      fGrp.add(fp);
+    }
+    for (const rZ of [-2.55, 2.55]) {
+      const rail = new THREE.Mesh(fenceRailGeo, woodMat);
+      rail.position.set(0, 0.92, rZ);
+      fGrp.add(rail);
+    }
+    for (const rX of [-3.55, 3.55]) {
+      const side = new THREE.Mesh(fenceSideGeo, woodMat);
+      side.position.set(rX, 0.92, 0);
+      fGrp.add(side);
+    }
+    scene.add(fGrp);
+    staticColliders.push({
+      x: yard.centerX,
+      y: gy + 0.65,
+      z: yard.centerZ,
+      hx: 3.65,
+      hy: 0.75,
+      hz: 2.65,
+      ry: yard.yaw,
+      ignoreCamera: true,
+      kind: 'prop',
+    });
+  }
+
   if (import.meta.env.DEV) {
-    const audit = validateWorldLayout(cratePositions);
-    if (!audit.valid) {
-      console.warn('[WorldLayoutAudit] Layout clearance issues detected:', audit.issues);
+    const audit = validateWorldLayout(managedProps.crates);
+    const propAudit = auditPlacedProps();
+    if (!audit.valid || propAudit.violations.length > 0) {
+      console.warn('[WorldLayoutAudit] Layout clearance issues:', {
+        issues: audit.issues,
+        propViolations: propAudit.violations,
+      });
     }
   }
 
-  const conePositions = [
-    { x: 6, y: 0.52, z: -13 },
-    { x: -6, y: 0.52, z: -13 },
-    { x: 8, y: 0.52, z: 12 },
-    { x: -8, y: 0.52, z: 12 },
-    { x: -58, y: 0.52, z: 18 },
-    { x: -74, y: 0.52, z: 18 },
-  ];
-  for (const cp of conePositions) {
+  for (const cp of managedProps.cones) {
+    const cy = cp.y + 0.52;
     const m = new THREE.Mesh(coneGeo, coneMat);
-    m.position.set(cp.x, cp.y, cp.z);
+    m.position.set(cp.x, cy, cp.z);
     m.castShadow = true;
     scene.add(m);
     dynamicProps.push({
       mesh: m,
       x: cp.x,
-      y: cp.y,
+      y: cy,
       z: cp.z,
       hx: 0.4,
       hy: 0.52,
@@ -2048,6 +2282,96 @@ export function buildWorldEnvironment(
       mass: 0.8,
     });
   }
+
+  for (const bn of managedProps.benches) {
+    const bGrp = new THREE.Group();
+    bGrp.position.set(bn.x, bn.y, bn.z);
+    bGrp.rotation.y = bn.yaw;
+    const seat = new THREE.Mesh(benchSeatGeo, woodMat);
+    seat.position.y = 0.52;
+    seat.castShadow = true;
+    const legL = new THREE.Mesh(benchLegGeo, roofDarkMat);
+    legL.position.set(-0.72, 0.24, 0);
+    const legR = new THREE.Mesh(benchLegGeo, roofDarkMat);
+    legR.position.set(0.72, 0.24, 0);
+    bGrp.add(seat, legL, legR);
+    scene.add(bGrp);
+  }
+
+  for (const lp of managedProps.lamps) {
+    const pole = new THREE.Mesh(outerLampPostGeo, roofDarkMat);
+    pole.position.set(lp.x, lp.y + 2.0, lp.z);
+    pole.castShadow = true;
+    const bulb = new THREE.Mesh(outerLampBulbGeo, lanternMat);
+    bulb.position.set(lp.x, lp.y + 4.05, lp.z);
+    scene.add(pole, bulb);
+  }
+
+  for (const kk of managedProps.contactKiosks) {
+    const kTex = createSignTexture('CONTACT & CV', 'OPEN /CONTACT · DOWNLOAD RESUME', '#21968B');
+    textures.push(kTex);
+    const kScreenMat = new THREE.MeshBasicMaterial({ map: kTex, toneMapped: false });
+    materials.push(kScreenMat);
+    const kGrp = new THREE.Group();
+    kGrp.position.set(kk.x, kk.y, kk.z);
+    kGrp.rotation.y = kk.yaw;
+    const body = new THREE.Mesh(kioskBaseGeo, roofDarkMat);
+    body.position.y = 1.1;
+    body.castShadow = true;
+    const scr = new THREE.Mesh(kioskScreenGeo, kScreenMat);
+    scr.position.set(0, 1.45, 0.37);
+    kGrp.add(body, scr);
+    scene.add(kGrp);
+    staticColliders.push({
+      x: kk.x,
+      y: kk.y + 1.1,
+      z: kk.z,
+      hx: 0.8,
+      hy: 1.1,
+      hz: 0.45,
+      ry: kk.yaw,
+      kind: 'prop',
+    });
+  }
+
+  // F6 Prop Audit Debug Overlay (green rings >= 4m clear, red rings < 4m violation)
+  const propAuditGroup = new THREE.Group();
+  propAuditGroup.visible = false;
+  const auditRingGeo = new THREE.RingGeometry(0.95, 1.32, 16);
+  auditRingGeo.rotateX(-Math.PI / 2);
+  geometries.push(auditRingGeo);
+  const auditOkMat = new THREE.MeshBasicMaterial({ color: 0x4caf50, side: THREE.DoubleSide });
+  const auditWarnMat = new THREE.MeshBasicMaterial({ color: 0xef4444, side: THREE.DoubleSide });
+  materials.push(auditOkMat, auditWarnMat);
+  for (const pr of managedProps.all) {
+    const m = new THREE.Mesh(auditRingGeo, pr.roadClearanceMeters >= 4.0 ? auditOkMat : auditWarnMat);
+    m.position.set(pr.x, pr.y + 0.14, pr.z);
+    propAuditGroup.add(m);
+  }
+  scene.add(propAuditGroup);
+
+  // Dynamic GPS Glowing Navigation Ribbon Mesh
+  const gpsRibbonGeo = new THREE.BufferGeometry();
+  const gpsRibbonMat = new THREE.MeshBasicMaterial({
+    color: 0x21968b,
+    transparent: true,
+    opacity: 0.72,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -4,
+  });
+  geometries.push(gpsRibbonGeo);
+  materials.push(gpsRibbonMat);
+  const gpsRibbonMesh = new THREE.Mesh(gpsRibbonGeo, gpsRibbonMat);
+  gpsRibbonMesh.visible = false;
+  gpsRibbonMesh.renderOrder = 8;
+  gpsRibbonMesh.frustumCulled = false;
+  scene.add(gpsRibbonMesh);
+
+  // AI Traffic, Paddock Circuit Rivals & Companion Guide Drone
+  const aiTraffic = createAiTrafficSystem(scene, geometries, materials);
 
   // 16. Ambient Floating Dust / Pollen Motes
   const moteCount = 90;
@@ -2305,6 +2629,96 @@ export function buildWorldEnvironment(
     waterSystem.setVehicleWake(x, z, speedMs, inWater);
   };
 
+  const _sunDirScratch = new THREE.Vector3(58, 76, 44).normalize();
+
+  const updateSunTarget = (px: number, pz: number) => {
+    const frustumWidth = Math.max(64, sun.shadow.camera.right - sun.shadow.camera.left);
+    const mapSize = Math.max(512, sun.shadow.mapSize.width);
+    const texelSize = frustumWidth / mapSize;
+    const snappedX = Math.round(px / texelSize) * texelSize;
+    const snappedZ = Math.round(pz / texelSize) * texelSize;
+    sun.target.position.set(snappedX, 0, snappedZ);
+    atmosphereSystem.getSunDirection(_sunDirScratch);
+    sun.position.set(
+      snappedX + _sunDirScratch.x * 115,
+      Math.max(18, _sunDirScratch.y * 115),
+      snappedZ + _sunDirScratch.z * 115,
+    );
+    sun.target.updateMatrixWorld();
+  };
+
+  const updatePlayerContext = (px: number, _py: number, pz: number, camX: number, camZ: number) => {
+    atmosphereSystem.setPlayerPosition(px, pz);
+    vegetationSystem.setCameraPosition(camX, camZ);
+    updateSunTarget(px, pz);
+  };
+
+  const updateGpsRoute = (
+    points: readonly { x: number; z: number }[] | null,
+    colorHex = '#21968B',
+  ) => {
+    if (!points || points.length < 2) {
+      gpsRibbonMesh.visible = false;
+      return;
+    }
+    gpsRibbonMat.color.set(colorHex);
+    const pos: number[] = [];
+    const idx: number[] = [];
+    const halfW = 0.52;
+    let vertCursor = 0;
+
+    for (let s = 0; s < points.length - 1; s++) {
+      const a = points[s];
+      const b = points[s + 1];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const len = Math.hypot(dx, dz);
+      if (len < 0.4) continue;
+      const steps = Math.max(2, Math.ceil(len / 2.5));
+      const nx = -dz / len;
+      const nz = dx / len;
+      const startVert = vertCursor;
+
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const cx = a.x + dx * t;
+        const cz = a.z + dz * t;
+        const y = (computeBridgeSurfaceY(cx, cz) ?? computeGroundHeight(cx, cz)) + 0.085;
+        pos.push(cx + nx * halfW, y, cz + nz * halfW, cx - nx * halfW, y, cz - nz * halfW);
+        if (i < steps) {
+          const base = startVert + i * 2;
+          idx.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
+        }
+        vertCursor += 2;
+      }
+    }
+
+    if (pos.length < 6) {
+      gpsRibbonMesh.visible = false;
+      return;
+    }
+    gpsRibbonGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    gpsRibbonGeo.setIndex(idx);
+    gpsRibbonGeo.computeBoundingSphere();
+    gpsRibbonMesh.visible = true;
+  };
+
+  const setDayNightCycle = (enabled: boolean) => {
+    atmosphereSystem.setDayNightCycle(enabled);
+  };
+
+  const setRoadLayerDebug = (enabled: boolean) => {
+    roadAndBridgeSys.setRoadLayerDebug(enabled);
+  };
+
+  const setPropAuditVisible = (visible: boolean) => {
+    propAuditGroup.visible = visible;
+  };
+
+  const setAllOrbsCollected = (collectedAll: boolean) => {
+    crownGroup.visible = collectedAll;
+  };
+
   let lowQualityProfile = false;
   let reducedMotionProfile = false;
 
@@ -2319,6 +2733,7 @@ export function buildWorldEnvironment(
     motes.visible = !hideLivingFX;
     butterflyGroup.visible = !hideLivingFX;
     fishGroup.visible = !hideLivingFX;
+    aiTraffic.setVisible(!isSoftwareGl || quality !== 'low');
     waterSystem.applyQuality(quality);
     vegetationSystem.setPerformanceProfile(quality, reducedMotion);
     atmosphereSystem.setQualityProfile(quality, reducedMotion, isSoftwareGl);
@@ -2330,19 +2745,15 @@ export function buildWorldEnvironment(
     atmosphereSystem.update(motionTime, dt);
     vegetationSystem.update(motionTime, dt);
 
-    for (const fs of floatingSigns) {
-      fs.group.position.y = fs.baseY + Math.sin(motionTime * 1.8 + fs.phase) * 0.22;
-    }
-
-    for (const ind of indicatorDiamonds) {
-      ind.mesh.position.y = ind.baseY + Math.sin(motionTime * 2.6 + ind.phase) * 0.32;
-      ind.mesh.rotation.y = motionTime * 1.7 + ind.phase;
+    if (crownGroup.visible) {
+      crownGroup.rotation.y = motionTime * 1.4;
+      cCore.rotation.x = motionTime * 1.1;
     }
 
     techSymbols.forEach((sym, i) => {
-      sym.rotation.y = motionTime * (1.1 + i * 0.25);
-      sym.rotation.x = Math.sin(motionTime + i) * 0.4;
-      sym.position.y = (i === 1 ? 6.8 : 5.8) + Math.sin(motionTime * 2.1 + i * 1.3) * 0.28;
+      sym.mesh.rotation.y = motionTime * (1.1 + i * 0.25);
+      sym.mesh.rotation.x = Math.sin(motionTime + i) * 0.35;
+      sym.mesh.position.y = sym.baseY + Math.sin(motionTime * 2.0 + i * 1.3) * 0.14;
     });
 
     if (radarDish) {
@@ -2533,6 +2944,14 @@ export function buildWorldEnvironment(
     setVehicleWake,
     setPerformanceProfile,
     setWindMode,
+    setDayNightCycle,
+    updateSunTarget,
+    updatePlayerContext,
+    updateAiTraffic: aiTraffic.update,
+    updateGpsRoute,
+    setRoadLayerDebug,
+    setPropAuditVisible,
+    setAllOrbsCollected,
     updateEnvironment,
     dispose,
   };

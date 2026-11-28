@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>/</loc><priority>1.0</priority></url>
+  <url><loc>/classic</loc><priority>0.9</priority></url>
+  <url><loc>/about</loc><priority>0.8</priority></url>
+  <url><loc>/projects</loc><priority>0.9</priority></url>
+  <url><loc>/skills</loc><priority>0.8</priority></url>
+  <url><loc>/journey</loc><priority>0.8</priority></url>
+  <url><loc>/services</loc><priority>0.8</priority></url>
+  <url><loc>/contact</loc><priority>0.8</priority></url>
+  <url><loc>/achievements</loc><priority>0.6</priority></url>
+  <url><loc>/garage</loc><priority>0.6</priority></url>
+  <url><loc>/leaderboard</loc><priority>0.6</priority></url>
+  <url><loc>/whispers</loc><priority>0.5</priority></url>
+  <url><loc>/guide</loc><priority>0.6</priority></url>
+  <url><loc>/behind-the-scenes</loc><priority>0.5</priority></url>
+</urlset>

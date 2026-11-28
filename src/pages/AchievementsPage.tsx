@@ -11,7 +11,7 @@ import {
   WORLD_COLLECTIBLES,
   WORLD_LANDMARKS,
 } from '../data/portfolioData';
-import { getAllAchievementsProgress } from '../game/progression';
+import { computeExplorerRank, getAllAchievementsProgress } from '../game/progression';
 import { useAppState } from '../state/AppStateContext';
 import type { CollectibleKind } from '../types/portfolio';
 
@@ -40,7 +40,7 @@ export const AchievementsPage: React.FC = () => {
   );
   const maxPoints = ACHIEVEMENTS_LIST.reduce((sum, a) => sum + a.points, 0);
 
-  const progressItems = getAllAchievementsProgress({
+  const progressInput = {
     unlockedAchievements,
     discoveredLandmarks,
     openedProjects,
@@ -49,7 +49,9 @@ export const AchievementsPage: React.FC = () => {
     completedChallenges,
     bestLapSeconds,
     distanceDrivenMeters,
-  });
+  };
+  const explorerRank = computeExplorerRank(progressInput);
+  const progressItems = getAllAchievementsProgress(progressInput);
 
   const progressMap = new Map(progressItems.map((p) => [p.achievementId, p]));
   const unlockedList = ACHIEVEMENTS_LIST.filter(
@@ -77,6 +79,35 @@ export const AchievementsPage: React.FC = () => {
       title="ACHIEVEMENTS & REWARDS"
       subtitle="Live Exploration Progress · 10 Core Achievements, Garage Skins, Orbs & Secrets"
     >
+      {/* Explorer Rank Progress Banner */}
+      <div className="ui-card-featured p-5 mb-6 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <div className="text-xs font-extrabold tracking-wider text-[#21968B]">
+            EXPLORER RANK · LEVEL {explorerRank.level}
+          </div>
+          <h2 className="font-display text-4xl font-bold text-[#26211E] leading-none mt-1">
+            {explorerRank.rankTitle.toUpperCase()}
+          </h2>
+          <p className="text-xs font-semibold text-[#61564E] mt-1">
+            {explorerRank.nextRankTitle
+              ? `Next Rank: ${explorerRank.nextRankTitle} at ${explorerRank.nextLevelXp.toLocaleString()} XP`
+              : 'Maximum Explorer Rank Achieved'}
+          </p>
+        </div>
+        <div className="w-full sm:w-64 space-y-1.5">
+          <div className="flex items-center justify-between text-xs font-extrabold text-[#26211E] tabular-nums">
+            <span>{explorerRank.xp.toLocaleString()} XP</span>
+            <span>{explorerRank.pct}%</span>
+          </div>
+          <AnimatedProgress
+            value={explorerRank.xp - explorerRank.currentLevelXp}
+            max={Math.max(1, explorerRank.nextLevelXp - explorerRank.currentLevelXp)}
+            color="turquoise"
+            heightClass="h-2.5"
+          />
+        </div>
+      </div>
+
       {/* Top Progress Metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
         <div className="ui-card-sand p-5">

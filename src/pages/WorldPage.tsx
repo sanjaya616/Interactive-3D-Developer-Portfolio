@@ -28,7 +28,9 @@ import {
   type HudNotificationItem,
   type HudNotificationKind,
 } from '../game/hudNotifications';
+import { computeRaceMedal } from '../game/progression';
 import type { DevPerfStats, SceneManager } from '../game/sceneManager';
+import { trackAnalyticsEvent } from '../state/analytics';
 import { useAppState } from '../state/AppStateContext';
 import type {
   ActiveChallengeId,
@@ -73,6 +75,9 @@ const INITIAL_HUD: GameHudSnapshot = {
   totalFragments: WORLD_COLLECTIBLES.filter((c) => c.kind === 'fragment').length,
   secretsFound: 0,
   totalSecrets: WORLD_COLLECTIBLES.filter((c) => c.kind === 'secret').length,
+  gear: 1,
+  rpm: 950,
+  boundaryDistMeters: 150,
   activeChallenge: {
     id: null,
     title: '',
@@ -171,6 +176,7 @@ export const WorldPage: React.FC = () => {
   const [devPerfOpen, setDevPerfOpen] = useState(false);
   const [devPerfStats, setDevPerfStats] = useState<DevPerfStats | null>(null);
   const [devCollisionDebug, setDevCollisionDebug] = useState(false);
+  const [showOnboardingHint, setShowOnboardingHint] = useState(false);
 
   const managerRef = useRef<SceneManager | null>(null);
   const lastSyncedDistanceRef = useRef(0);
@@ -223,6 +229,19 @@ export const WorldPage: React.FC = () => {
     document.body.dataset.state = phase;
     setWorldPhase(phase);
   }, [phase, setWorldPhase]);
+
+  useEffect(() => {
+    if (phase !== 'playing') return;
+    try {
+      if (window.localStorage.getItem('sanjaya_controls_hint_seen_v1')) return;
+      window.localStorage.setItem('sanjaya_controls_hint_seen_v1', '1');
+    } catch {
+      return;
+    }
+    setShowOnboardingHint(true);
+    const t = window.setTimeout(() => setShowOnboardingHint(false), 8000);
+    return () => window.clearTimeout(t);
+  }, [phase]);
 
   useEffect(() => {
     setCurrentWorldZone(hud.zoneName);
@@ -410,6 +429,7 @@ export const WorldPage: React.FC = () => {
   const handleLandmarkDiscovered = useCallback(
     (lm: WorldLandmark) => {
       markLandmarkDiscovered(lm.id);
+      trackAnalyticsEvent('landmark_visit', lm.id);
       advanceTourForLandmark(lm.id);
       pushNotification('discovery', lm.title, 'NEW DESTINATION DISCOVERED');
       setObjectiveId((curr) => {
@@ -473,6 +493,7 @@ export const WorldPage: React.FC = () => {
   const handleChallengeCompleted = useCallback(
     (id: string) => {
       markChallengeCompleted(id);
+      trackAnalyticsEvent('challenge_complete', id);
       pushNotification('challenge', 'Challenge Complete!', 'ISLAND MISSION CLEARED');
     },
     [markChallengeCompleted, pushNotification],
@@ -791,6 +812,23 @@ export const WorldPage: React.FC = () => {
             <h2 className="font-display text-5xl font-bold text-[#26211E] mt-1 leading-none">
               {hud.race.isNewBest ? 'NEW BEST LAP!' : 'LAP COMPLETE'}
             </h2>
+            {(() => {
+              const medal = computeRaceMedal(hud.race.lastTimeSec);
+              if (!medal) return null;
+              const badgeCls =
+                medal === 'Gold'
+                  ? 'bg-[#FFE08A] text-[#26211E] border-[#CC5318]'
+                  : medal === 'Silver'
+                    ? 'bg-[#E6D3B5] text-[#26211E] border-[#61564E]'
+                    : 'bg-[#EC6D2C]/20 text-[#CC5318] border-[#EC6D2C]';
+              return (
+                <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-extrabold">
+                  <Award className="w-3.5 h-3.5 text-[#CC5318]" />
+                  <span className={`px-1.5 py-0.5 rounded border ${badgeCls}`}>{medal} Medal</span>
+                  <span className="text-[#61564E]">(Gold &le; 9.5s · Silver &le; 14s)</span>
+                </div>
+              );
+            })()}
 
             <div className="mt-4 grid grid-cols-2 gap-3">
               <div className="p-4 ui-card-sand">
@@ -884,6 +922,25 @@ export const WorldPage: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* First-Drive 8-Second Dismissible Controls Hint */}
+      {phase === 'playing' && showOnboardingHint && !activeNotification && !panelOpen && (
+        <div
+          role="status"
+          data-testid="first-drive-hint"
+          className="fixed top-20 left-1/2 -translate-x-1/2 z-30 ui-hud-panel-dark border-[#21968B] px-4 py-2 rounded-2xl flex items-center gap-3 text-xs font-bold text-[#FFF9F0] max-w-[92vw]"
+        >
+          <span>WASD Drive · Shift Boost · Space x2 Jump · X Drift · F Recover · M Map</span>
+          <button
+            type="button"
+            onClick={() => setShowOnboardingHint(false)}
+            aria-label="Dismiss controls tip"
+            className="p-0.5 rounded hover:bg-[#3F3834] cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 

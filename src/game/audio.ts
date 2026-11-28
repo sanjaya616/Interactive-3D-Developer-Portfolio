@@ -441,6 +441,21 @@ class SoundEngine {
     return this.engineCtx !== null;
   }
 
+  private onCaptionCb: ((text: string) => void) | null = null;
+  private lastCaptionTime = 0;
+
+  setCaptionCallback(cb: ((text: string) => void) | null): void {
+    this.onCaptionCb = cb;
+  }
+
+  private emitCaption(text: string): void {
+    if (!this.onCaptionCb) return;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (now - this.lastCaptionTime < 450 && text.includes('Engine')) return;
+    this.lastCaptionTime = now;
+    this.onCaptionCb(text);
+  }
+
   updateEngine(
     speedKmh: number,
     isBoosting: boolean,
@@ -450,19 +465,43 @@ class SoundEngine {
     isBraking = false,
     weatherMode: WeatherMode = 'sunny',
     inWater = false,
+    gear = 1,
+    rpm = 950,
   ): void {
     if (!this.enabled || !this.engineOsc || !this.engineGain || !this.engineCtx) return;
     const now = this.engineCtx.currentTime;
     const weatherWindBase =
-      weatherMode === 'rain' ? 0.048 : weatherMode === 'fog' ? 0.024 : weatherMode === 'night' ? 0.014 : 0.016;
+      weatherMode === 'storm'
+        ? 0.068
+        : weatherMode === 'rain'
+          ? 0.048
+          : weatherMode === 'fog'
+            ? 0.024
+            : weatherMode === 'night'
+              ? 0.014
+              : weatherMode === 'clear'
+                ? 0.013
+                : 0.016;
 
     if (this.windFilter) {
       this.windFilter.frequency.setTargetAtTime(
-        inWater ? 960 : weatherMode === 'rain' ? 1280 : weatherMode === 'fog' ? 320 : 380,
+        inWater
+          ? 960
+          : weatherMode === 'storm'
+            ? 1420
+            : weatherMode === 'rain'
+              ? 1280
+              : weatherMode === 'fog'
+                ? 320
+                : 380,
         now,
         0.2,
       );
-      this.windFilter.Q.setTargetAtTime(inWater ? 0.55 : weatherMode === 'rain' ? 0.65 : 1.1, now, 0.25);
+      this.windFilter.Q.setTargetAtTime(
+        inWater ? 0.55 : weatherMode === 'rain' || weatherMode === 'storm' ? 0.65 : 1.1,
+        now,
+        0.25,
+      );
     }
 
     if (!isPlaying) {
@@ -476,13 +515,15 @@ class SoundEngine {
     }
 
     const norm = Math.min(1, speedKmh / 65);
-    const freq = 48 + norm * 78 + (isBoosting ? 24 : 0);
-    const vol = 0.022 + norm * 0.042 + (isBoosting ? 0.018 : 0);
-    this.engineOsc.frequency.setTargetAtTime(freq, now, 0.06);
+    const rpmNorm = Math.max(0, Math.min(1, (rpm - 950) / 6250));
+    const gearFreqOffset = (gear === 0 ? 0.85 : 1 + gear * 0.055);
+    const freq = (46 + rpmNorm * 68 + norm * 24 + (isBoosting ? 22 : 0)) * gearFreqOffset;
+    const vol = 0.022 + rpmNorm * 0.036 + norm * 0.014 + (isBoosting ? 0.018 : 0);
+    this.engineOsc.frequency.setTargetAtTime(freq, now, 0.055);
     this.engineGain.gain.setTargetAtTime(vol, now, 0.08);
 
     const accelEffort = Math.abs(throttleAmt);
-    this.accelOsc?.frequency.setTargetAtTime(92 + norm * 145 + accelEffort * 36, now, 0.07);
+    this.accelOsc?.frequency.setTargetAtTime(88 + rpmNorm * 135 + accelEffort * 38, now, 0.065);
     this.accelGain?.gain.setTargetAtTime(
       accelEffort > 0.1 ? 0.014 + accelEffort * 0.024 : 0,
       now,
@@ -496,6 +537,8 @@ class SoundEngine {
     this.brakeGain?.gain.setTargetAtTime(brakingActive ? 0.038 * Math.min(1, speedKmh / 25) : 0, now, 0.05);
 
     this.driftGain?.gain.setTargetAtTime(isDrifting && !inWater ? 0.045 : 0, now, 0.06);
+    if (isDrifting && !inWater) this.emitCaption('Tyre screech');
+    else if (isBoosting) this.emitCaption('Turbo boost');
     const waterRooster = inWater ? norm * 0.048 : 0;
     this.ambientGain?.gain.setTargetAtTime(weatherWindBase + norm * 0.035 + waterRooster, now, 0.12);
   }
@@ -504,18 +547,21 @@ class SoundEngine {
     if (!this.enabled) return;
     this.initSounds();
     this.hornSound?.play();
+    this.emitCaption('Car horn');
   }
 
   playJump(): void {
     if (!this.enabled) return;
     this.initSounds();
     this.jumpSound?.play();
+    this.emitCaption('Suspension jump');
   }
 
   playDoubleJump(): void {
     if (!this.enabled) return;
     this.initSounds();
     this.doubleJumpSound?.play();
+    this.emitCaption('Double-jump burst');
   }
 
   playLand(intensity = 0.5): void {
@@ -525,12 +571,14 @@ class SoundEngine {
       this.landSound.volume(Math.min(0.55, Math.max(0.14, intensity * 0.42)));
       this.landSound.play();
     }
+    if (intensity > 0.35) this.emitCaption('Landing impact');
   }
 
   playRecover(): void {
     if (!this.enabled) return;
     this.initSounds();
     this.recoverSound?.play();
+    this.emitCaption('Vehicle recovered');
   }
 
   playWaterSplash(entering = true): void {
@@ -540,24 +588,28 @@ class SoundEngine {
       this.splashSound.volume(entering ? 0.44 : 0.28);
       this.splashSound.play();
     }
+    if (entering) this.emitCaption('Water splash');
   }
 
   playChime(): void {
     if (!this.enabled) return;
     this.initSounds();
     this.chimeSound?.play();
+    this.emitCaption('Discovery chime');
   }
 
   playAchievement(): void {
     if (!this.enabled) return;
     this.initSounds();
     this.achievementSound?.play();
+    this.emitCaption('Achievement unlocked');
   }
 
   playCollect(): void {
     if (!this.enabled) return;
     this.initSounds();
     this.collectSound?.play();
+    this.emitCaption('Item collected');
   }
 
   playClick(): void {
@@ -573,13 +625,18 @@ class SoundEngine {
       this.impactSound.volume(Math.min(0.65, Math.max(0.18, intensity * 0.45)));
       this.impactSound.play();
     }
+    if (intensity > 0.25) this.emitCaption('Collision thud');
   }
 
   playCountdownBeep(go = false): void {
     if (!this.enabled) return;
     this.initSounds();
-    if (go) this.beepHighSound?.play();
-    else this.beepLowSound?.play();
+    if (go) {
+      this.beepHighSound?.play();
+      this.emitCaption('Race go!');
+    } else {
+      this.beepLowSound?.play();
+    }
   }
 
   dispose(): void {

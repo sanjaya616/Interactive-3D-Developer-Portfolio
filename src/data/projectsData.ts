@@ -29,6 +29,10 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     ],
     contribution:
       'Designed the relational MySQL schema, built role-based instructor and student access flows, and implemented course enrollment and material upload pages.',
+    role: 'Sole Full-Stack Developer',
+    problemSolved: 'Centralizes scattered lecture slides, course rosters, and role-gated administration into one lightweight PHP & MySQL portal.',
+    architectureSummary: 'Server-rendered PHP MVC pages backed by normalized MySQL tables for users, courses, enrollments, and uploaded lesson assets.',
+    outcomeNote: 'Personal full-stack build with working enrollment and role workflows; quiz grading and discussion boards scoped next.',
     previewKind: 'lms',
     accentColor: '#F27D3B',
     links: {
@@ -61,6 +65,10 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     ],
     contribution:
       'Built the room category catalog, date-selection reservation inquiry form, SQL booking database, and administrative reservation management screens.',
+    role: 'Web & Database Developer',
+    problemSolved: 'Replaces manual spreadsheet reservation inquiries with structured room browsing, stay-date capture, and admin lookup.',
+    architectureSummary: 'PHP server handlers + SQL booking schema pairing guest inquiry forms with staff reservation views.',
+    outcomeNote: 'Core booking catalog and admin views implemented; live availability locking & payment gateway noted for next phase.',
     previewKind: 'hotel-booking',
     accentColor: '#2BA89C',
     links: {
@@ -88,6 +96,10 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     plannedFeatures: [],
     contribution:
       'Configured WooCommerce retail stores, structured product catalogs, and customized responsive front-end layouts for client storefronts.',
+    role: 'Freelance Web Developer',
+    problemSolved: 'Brings local retail inventories online with mobile-friendly product browsing and self-manageable WooCommerce checkout.',
+    architectureSummary: 'WordPress + WooCommerce storefront theme customized with responsive CSS3/JS product filter and cart templates.',
+    outcomeNote: 'Delivered live-ready client storefronts tailored for non-technical shop owners to manage listings.',
     previewKind: 'ecommerce',
     accentColor: '#EE5D52',
     links: {
@@ -115,6 +127,10 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     plannedFeatures: [],
     contribution:
       'Developed practical operational web interfaces and relational database workflows helping small businesses track stock and daily transactions.',
+    role: 'Freelance Systems Developer',
+    problemSolved: 'Eliminates paper-ledger stock mismatches for small shops via quick daily item logging and relational records.',
+    architectureSummary: 'Browser dashboard UI paired with normalized relational stock, supplier, and transaction tables.',
+    outcomeNote: 'Deployed for small-business operations workflows tracking inventory adjustments and daily sales logs.',
     previewKind: 'store-ops',
     accentColor: '#E69F38',
     links: {
@@ -144,6 +160,10 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     ],
     contribution:
       'Architecting the full-stack TypeScript application structure, PostgreSQL room-state models, and administrative UI components.',
+    role: 'Full-Stack TypeScript Architect',
+    problemSolved: 'Models strict room availability states (vacant, reserved, occupied, housekeeping) cleanly across frontend and SQL layers.',
+    architectureSummary: 'React + TypeScript SPA communicating with an Express REST API and PostgreSQL relational data model.',
+    outcomeNote: 'Active build; Express API foundation and room-state schemas operational while end-to-end staff scheduling continues.',
     previewKind: 'granbell',
     accentColor: '#2BA89C',
     links: {
@@ -173,6 +193,10 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     ],
     contribution:
       'Building a native Kotlin Android application applying MVVM separation, MediaStore indexing, Room caching, and Coil loading.',
+    role: 'Android Kotlin Developer',
+    problemSolved: 'Keeps large on-device photo and video libraries responsive using modern Kotlin concurrency and paged MediaStore queries.',
+    architectureSummary: 'Android Jetpack MVVM with Repository layer combining ContentResolver MediaStore scans, Room cache, and Coil image pipeline.',
+    outcomeNote: 'In active development; fast local media grid and Room caching verified on Android Studio emulator.',
     previewKind: 'galleryx',
     accentColor: '#6A9A68',
     links: {
@@ -202,6 +226,10 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     ],
     contribution:
       'Designing and prototyping Flutter and Dart mobile screens tailored to quick small-business order and customer record entry.',
+    role: 'Cross-Platform Mobile Developer',
+    problemSolved: 'Speeds up counter-side order entry, invoice drafting, and delivery address lookup on affordable smartphones.',
+    architectureSummary: 'Flutter widget tree in Dart structured around modular order-capture, customer directory, and invoice preview flows.',
+    outcomeNote: 'Core UI flows implemented in development; local offline invoice persistence and PDF export scoped next.',
     previewKind: 'mobile-utilities',
     accentColor: '#F27D3B',
     links: {
@@ -232,6 +260,10 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     ],
     contribution:
       'Building the Vite + React TypeScript front end, Tailwind styling, Express backend endpoints, and MySQL media catalog schema.',
+    role: 'Full-Stack Web Developer',
+    problemSolved: 'Organizes curated film metadata, genre taxonomy, and sample stream playback in one responsive web portal.',
+    architectureSummary: 'React + TypeScript + Tailwind SPA consuming Express REST endpoints backed by MySQL catalog and category tables.',
+    outcomeNote: 'Catalog browsing, player views, and admin category tools implemented while watchlist sync continues.',
     previewKind: 'media-portal',
     accentColor: '#EE5D52',
     links: {
@@ -260,6 +292,10 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     ],
     contribution:
       'Authored Oracle PL/SQL database procedures and connected MongoDB telemetry storage inside the NIBM coursework backend.',
+    role: 'Backend & Database Engineer (Coursework)',
+    problemSolved: 'Bridges ACID-strict transport dispatch records with high-frequency vehicle telemetry payloads across polyglot storage.',
+    architectureSummary: 'Node.js & Express API coordinating Oracle PL/SQL transactional stored procedures alongside MongoDB telemetry collections.',
+    outcomeNote: 'Completed NIBM coursework demonstrating hybrid relational + document storage integration.',
     previewKind: 'smartmove',
     accentColor: '#3E7B9E',
     links: {
@@ -289,6 +325,10 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     ],
     contribution:
       'Created the Arduino C/C++ control sketch, wired the L298N motor driver and sensor array, and implemented USB Serial monitoring.',
+    role: 'Embedded Systems & Firmware Designer',
+    problemSolved: 'Automates timed pressing and motor-load supervision to reduce manual labor during coconut milk extraction.',
+    architectureSummary: 'Arduino microcontroller running C/C++ state-machine logic over L298N H-bridge driver, analog sensors, and USB serial logs.',
+    outcomeNote: 'Control firmware, bench wiring, and live serial telemetry verified at prototype stage.',
     previewKind: 'coconut-automation',
     accentColor: '#6A9A68',
     links: {
@@ -318,6 +358,10 @@ export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
     ],
     contribution:
       'Integrated the Arduino controller, RC522 RFID reader, keypad module, logic gate circuit, and servo-actuated barrier mechanism.',
+    role: 'Hardware & Embedded Prototype Builder',
+    problemSolved: 'Provides dual-factor RFID card + PIN entry physical barrier control for small compound gates.',
+    architectureSummary: 'Arduino C/C++ controller reading SPI RFID RC522 tags & matrix keypad inputs through combinational logic into a servo gate actuator.',
+    outcomeNote: 'Working electronics bench prototype recreated virtually inside Signal Workshop’s 3D RFID challenge.',
     previewKind: 'smart-gate',
     accentColor: '#D9601E',
     links: {

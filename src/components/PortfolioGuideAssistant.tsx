@@ -11,6 +11,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
+import { trackAnalyticsEvent } from '../state/analytics';
 import { useAppState } from '../state/AppStateContext';
 
 interface NavSuggestion {
@@ -23,7 +24,9 @@ interface ChatEntry {
   id: string;
   role: 'user' | 'model';
   text: string;
+  streaming?: boolean;
   suggestions?: NavSuggestion[];
+  followUps?: string[];
 }
 
 const SUGGESTED_QUESTIONS: string[] = [
@@ -56,9 +59,16 @@ export const PortfolioGuideAssistant: React.FC = () => {
 
   const listEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const isWorldRoute = location.pathname === '/';
   const hideTrigger = isWorldRoute && (worldPhase === 'loading' || worldPhase === 'photomode');
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     if (!assistantOpen) return;
@@ -89,13 +99,21 @@ export const PortfolioGuideAssistant: React.FC = () => {
     const trimmed = promptText.replace(/\s+/g, ' ').trim();
     if (!trimmed || loading) return;
 
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setErrorMsg(null);
     setLastFailedPrompt(null);
+    trackAnalyticsEvent('assistant_query');
 
-    const historySnapshot = messages.slice(-8).map((m) => ({
-      role: m.role,
-      text: m.text,
-    }));
+    const historySnapshot = messages
+      .filter((m) => !m.streaming && m.text.trim().length > 0)
+      .slice(-8)
+      .map((m) => ({
+        role: m.role,
+        text: m.text,
+      }));
 
     if (appendUserBubble) {
       setMessages((prev) => [
@@ -105,11 +123,14 @@ export const PortfolioGuideAssistant: React.FC = () => {
       setInput('');
     }
 
+    const streamMsgId = `m_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     setLoading(true);
+
     try {
-      const res = await fetch('/api/assistant/chat', {
+      const res = await fetch('/api/assistant/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           message: trimmed,
           history: historySnapshot,
@@ -118,14 +139,30 @@ export const PortfolioGuideAssistant: React.FC = () => {
         }),
       });
 
-      const data = (await res.json()) as {
-        reply?: string;
-        suggestions?: NavSuggestion[];
-        error?: string;
-        code?: string;
-      };
+      const contentType = res.headers.get('content-type') || '';
+      if (!res.ok || !contentType.includes('text/event-stream') || !res.body) {
+        const data = (await res.json().catch(() => ({}))) as {
+          reply?: string;
+          suggestions?: NavSuggestion[];
+          followUps?: string[];
+          error?: string;
+        };
 
-      if (!res.ok || !data.reply) {
+        if (res.ok && data.reply) {
+          setServiceAvailable(true);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: streamMsgId,
+              role: 'model',
+              text: data.reply!,
+              suggestions: Array.isArray(data.suggestions) ? data.suggestions : [],
+              followUps: Array.isArray(data.followUps) ? data.followUps : [],
+            },
+          ]);
+          return;
+        }
+
         if (res.status === 503) setServiceAvailable(false);
         setLastFailedPrompt(trimmed);
         setErrorMsg(
@@ -135,17 +172,104 @@ export const PortfolioGuideAssistant: React.FC = () => {
         return;
       }
 
-      setServiceAvailable(true);
+      // Stream SSE events progressively
       setMessages((prev) => [
         ...prev,
-        {
-          id: `m_${Date.now()}`,
-          role: 'model',
-          text: data.reply!,
-          suggestions: Array.isArray(data.suggestions) ? data.suggestions : [],
-        },
+        { id: streamMsgId, role: 'model', text: '', streaming: true },
       ]);
-    } catch {
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let streamHadDone = false;
+      let streamFailed = false;
+
+      const processBlock = (block: string) => {
+        const lines = block.split('\n');
+        let eventName = 'message';
+        let dataRaw = '';
+        for (const line of lines) {
+          if (line.startsWith('event:')) {
+            eventName = line.slice(6).trim();
+          } else if (line.startsWith('data:')) {
+            dataRaw += line.slice(5).trim();
+          }
+        }
+        if (!dataRaw) return;
+        try {
+          const payload = JSON.parse(dataRaw) as {
+            text?: string;
+            reply?: string;
+            suggestions?: NavSuggestion[];
+            followUps?: string[];
+            error?: string;
+            code?: string;
+          };
+
+          if (eventName === 'chunk' && payload.text) {
+            setServiceAvailable(true);
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === streamMsgId ? { ...m, text: m.text + payload.text } : m,
+              ),
+            );
+          } else if (eventName === 'done') {
+            streamHadDone = true;
+            setServiceAvailable(true);
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === streamMsgId
+                  ? {
+                      ...m,
+                      text: payload.reply || m.text,
+                      streaming: false,
+                      suggestions: Array.isArray(payload.suggestions) ? payload.suggestions : [],
+                      followUps: Array.isArray(payload.followUps) ? payload.followUps : [],
+                    }
+                  : m,
+              ),
+            );
+          } else if (eventName === 'error') {
+            streamFailed = true;
+            if (payload.code === 'AI_KEY_INVALID' || payload.code === 'AI_MODEL_UNAVAILABLE') {
+              setServiceAvailable(false);
+            }
+            setMessages((prev) => prev.filter((m) => m.id !== streamMsgId));
+            setLastFailedPrompt(trimmed);
+            setErrorMsg(
+              payload.error ||
+                'The AI Portfolio Guide could not complete the answer. All portfolio pages remain accessible.',
+            );
+          }
+        } catch {
+          // Ignore malformed partial JSON block
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let idx = buffer.indexOf('\n\n');
+        while (idx !== -1) {
+          const block = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          if (block.trim()) processBlock(block);
+          idx = buffer.indexOf('\n\n');
+        }
+      }
+      if (buffer.trim()) processBlock(buffer);
+
+      if (!streamHadDone && !streamFailed) {
+        setMessages((prev) =>
+          prev
+            .map((m) => (m.id === streamMsgId ? { ...m, streaming: false } : m))
+            .filter((m) => m.text.trim().length > 0),
+        );
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      setMessages((prev) => prev.filter((m) => m.id !== streamMsgId || m.text.trim().length > 0));
       setLastFailedPrompt(trimmed);
       setErrorMsg(
         'Network error reaching the AI Portfolio Guide. You can continue exploring all portfolio sections.',
@@ -170,6 +294,8 @@ export const PortfolioGuideAssistant: React.FC = () => {
   };
 
   const handleReset = () => {
+    abortRef.current?.abort();
+    setLoading(false);
     setMessages([]);
     setErrorMsg(null);
     setLastFailedPrompt(null);
@@ -177,7 +303,6 @@ export const PortfolioGuideAssistant: React.FC = () => {
 
   if (hideTrigger && !assistantOpen) return null;
 
-  // Position cleanly so it never overlaps 3D GameHUD top controls, Minimap, or mobile TouchControls
   const buttonPositionClass = isWorldRoute
     ? worldPhase === 'playing' || worldPhase === 'paused'
       ? touchHudActive
@@ -185,6 +310,8 @@ export const PortfolioGuideAssistant: React.FC = () => {
         : 'top-[68px] right-3 md:top-auto md:bottom-[248px] lg:bottom-[266px] md:right-5'
       : 'bottom-16 right-4 sm:bottom-6 sm:right-6'
     : 'bottom-4 right-4 sm:bottom-6 sm:right-6';
+
+  const latestModelEntry = [...messages].reverse().find((m) => m.role === 'model' && !m.streaming);
 
   return (
     <>
@@ -298,10 +425,10 @@ export const PortfolioGuideAssistant: React.FC = () => {
                         : 'bg-[#F5E9D4] text-[#26211E] border border-[#D9C3A3] font-semibold rounded-bl-sm'
                     }`}
                   >
-                    {m.text}
+                    {m.text || (m.streaming ? '...' : '')}
                   </div>
 
-                  {m.role === 'model' && m.suggestions && m.suggestions.length > 0 && (
+                  {m.role === 'model' && !m.streaming && m.suggestions && m.suggestions.length > 0 && (
                     <div className="mt-1.5 flex flex-wrap gap-1.5 max-w-[92%]">
                       {m.suggestions.map((nav) => (
                         <button
@@ -326,6 +453,29 @@ export const PortfolioGuideAssistant: React.FC = () => {
                   )}
                 </div>
               ))}
+
+              {!loading &&
+                latestModelEntry &&
+                latestModelEntry.followUps &&
+                latestModelEntry.followUps.length > 0 && (
+                  <div className="pt-1">
+                    <div className="text-[10px] font-extrabold tracking-wider text-[#61564E] mb-1">
+                      FOLLOW UP
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {latestModelEntry.followUps.map((q) => (
+                        <button
+                          key={q}
+                          type="button"
+                          onClick={() => void sendPrompt(q, true)}
+                          className="text-left px-2.5 py-1 rounded-lg bg-[#FFF9F0] border border-[#CBB18D] hover:border-[#26211E] hover:bg-[#FFE08A] text-[11px] font-bold text-[#26211E] transition-colors cursor-pointer"
+                        >
+                          {q}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
               {loading && (
                 <div

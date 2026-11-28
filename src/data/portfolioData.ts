@@ -18,6 +18,7 @@ import { DEVELOPER_PROFILE } from './profileData.ts';
 import { PORTFOLIO_PROJECTS, getProjectCounts } from './projectsData.ts';
 import { SERVICES_LIST } from './servicesData.ts';
 import { SKILL_CATEGORIES, SKILLS_CATALOG } from './skillsData.ts';
+import { PADDOCK_CENTER } from '../game/worldConstants.ts';
 
 export {
   DEVELOPER_PROFILE,
@@ -128,7 +129,7 @@ export const WORLD_LANDMARKS: WorldLandmark[] = [
     zoneLabel: 'The Paddock',
     category: 'Circuit',
     challengeType: 'race',
-    position: { x: -66, y: 0, z: 18 },
+    position: { x: PADDOCK_CENTER.x, y: 0, z: PADDOCK_CENTER.z },
     radius: 9,
     color: '#D9601E',
     summary:
@@ -231,7 +232,7 @@ export const WORLD_COLLECTIBLES: CollectibleDef[] = [
   // 6 Hidden Tokens
   { id: 'token-plaza', kind: 'token', x: 10, z: 10, label: 'Plaza Founder Token' },
   { id: 'token-lookout', kind: 'token', x: 0, z: -64, label: 'Lookout Ridge Token' },
-  { id: 'token-paddock', kind: 'token', x: -78, z: 18, label: 'Paddock Apex Token' },
+  { id: 'token-paddock', kind: 'token', x: PADDOCK_CENTER.x - 12, z: PADDOCK_CENTER.z, label: 'Paddock Apex Token' },
   { id: 'token-query', kind: 'token', x: 48, z: -60, label: 'Query Monolith Token' },
   { id: 'token-depot', kind: 'token', x: -46, z: 42, label: 'Depot Cargo Token' },
   { id: 'token-lagoon', kind: 'token', x: 24, z: -34, label: 'Lagoon Shore Token' },
@@ -248,10 +249,10 @@ export const WORLD_COLLECTIBLES: CollectibleDef[] = [
 ];
 
 export const PADDOCK_CHECKPOINTS: { id: string; label: string; x: number; z: number }[] = [
-  { id: 'cp-1', label: 'Sector 1 · North Curve', x: -66, z: 0 },
-  { id: 'cp-2', label: 'Sector 2 · West Hairpin', x: -84, z: 18 },
-  { id: 'cp-3', label: 'Sector 3 · South Sweeper', x: -66, z: 36 },
-  { id: 'cp-4', label: 'Sector 4 · Pit Return', x: -48, z: 18 },
+  { id: 'cp-1', label: 'Sector 1 · North Curve', x: PADDOCK_CENTER.x, z: PADDOCK_CENTER.z - 18 },
+  { id: 'cp-2', label: 'Sector 2 · West Hairpin', x: PADDOCK_CENTER.x - 18, z: PADDOCK_CENTER.z },
+  { id: 'cp-3', label: 'Sector 3 · South Sweeper', x: PADDOCK_CENTER.x, z: PADDOCK_CENTER.z + 18 },
+  { id: 'cp-4', label: 'Sector 4 · Pit Return', x: PADDOCK_CENTER.x + 18, z: PADDOCK_CENTER.z },
 ];
 
 export const TIME_TRIAL_CHECKPOINTS: { label: string; x: number; z: number }[] = [
@@ -840,7 +841,7 @@ export const MISSION_CATALOG: MissionCatalogItem[] = [
     difficulty: 'Normal',
     objective: 'Launch on 3-2-1-GO and clear all 4 oval sectors cleanly to post a verified PB lap.',
     startLocationLabel: 'The Paddock Start Grid',
-    startPoint: { x: -66, z: 18 },
+    startPoint: { x: PADDOCK_CENTER.x, z: PADDOCK_CENTER.z },
     startYaw: 0,
     controlsHint: 'W/Shift Accelerate · X Corner Drift · Beat Ghost',
     rewardSummary: 'RACE CHAMPION (+50 pts) & Midnight Circuit Skin',

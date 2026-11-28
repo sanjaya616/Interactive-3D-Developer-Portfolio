@@ -265,12 +265,13 @@ export class CameraRig {
       _desiredTarget.copy(vehiclePos).addScaledVector(_forward, lookAhead).addScaledVector(_up, 1.3);
     };
 
+    const speedAhead = Math.min(2.6, Math.abs(speedMs) * 0.11);
     if (mode === 'chase') {
-      applyFollowOrbit(10.2 * this.zoomScale, 5.1 * this.zoomScale, 4.5);
+      applyFollowOrbit(10.2 * this.zoomScale, 5.1 * this.zoomScale, 4.5 + speedAhead);
     } else if (mode === 'close') {
-      applyFollowOrbit(6.2 * this.zoomScale, 2.75 * this.zoomScale, 6.2);
+      applyFollowOrbit(6.2 * this.zoomScale, 2.75 * this.zoomScale, 6.2 + speedAhead * 0.8);
     } else if (mode === 'far') {
-      applyFollowOrbit(16.5 * this.zoomScale, 8.8 * this.zoomScale, 6.0);
+      applyFollowOrbit(16.5 * this.zoomScale, 8.8 * this.zoomScale, 6.0 + speedAhead);
     } else if (mode === 'topdown') {
       _desiredPos.set(
         vehiclePos.x,

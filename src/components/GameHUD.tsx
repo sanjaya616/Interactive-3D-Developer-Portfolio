@@ -74,9 +74,11 @@ const CAMERA_LABELS: Record<CameraMode, string> = {
 
 const WEATHER_SHORT: Record<WeatherMode, string> = {
   sunny: 'Day',
+  clear: 'Clear',
   sunset: 'Sunset',
   night: 'Night',
   rain: 'Rain',
+  storm: 'Storm',
   fog: 'Fog',
 };
 
@@ -156,8 +158,22 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       ? Math.max(0, Math.min(100, (ch.progressCurrent / ch.progressTotal) * 100))
       : 0;
 
+  const gearLabel = hud.gear === 0 ? 'R' : String(hud.gear ?? 1);
+  const rpmPct = Math.min(100, Math.max(8, Math.round((((hud.rpm ?? 950) - 900) / 6300) * 100)));
+  const nearBoundary =
+    typeof hud.boundaryDistMeters === 'number' && hud.boundaryDistMeters < 18;
+  const needleRad = Math.PI * (1 - speedRatio);
+  const needleX2 = 44 + Math.cos(needleRad) * 29;
+  const needleY2 = 42 - Math.sin(needleRad) * 29;
+
   return (
     <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between p-[max(0.75rem,env(safe-area-inset-top))] sm:p-5">
+      {nearBoundary && (
+        <div
+          aria-hidden="true"
+          className="fixed inset-0 pointer-events-none border-[6px] border-[#E65448]/65 transition-opacity"
+        />
+      )}
       {/* Top Row: Zone Cluster + Mission / Tour / Race + Quick Utilities */}
       <div className="flex items-start justify-between gap-2 sm:gap-4">
         {/* Top-Left Location & World Telemetry */}
@@ -405,6 +421,35 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                   <span>{tourState?.completed ? 'Replay Tour' : 'Guided Tour'}</span>
                 </button>
               )}
+            </div>
+          )}
+
+          {nearBoundary && (
+            <div
+              role="status"
+              data-testid="hud-boundary-warning"
+              className="px-3.5 py-1 rounded-xl bg-[#E65448] border-[1.5px] border-[#26211E] text-[#FFF9F0] text-[11px] font-extrabold tracking-wider shadow-[0_2px_0_#26211E]"
+            >
+              BOUNDARY AHEAD — TURN BACK ({Math.max(0, Math.round(hud.boundaryDistMeters ?? 0))}m)
+            </div>
+          )}
+
+          {!nearBoundary && hud.missionDistanceMeters !== undefined && hud.missionBearingDeg !== undefined && (
+            <div className="ui-hud-panel px-3 py-1 flex items-center gap-2 text-[11px] font-extrabold text-[#26211E] tabular-nums">
+              <span
+                aria-hidden="true"
+                className="inline-block text-[#EC6D2C]"
+                style={{ transform: `rotate(${Math.round(hud.missionBearingDeg)}deg)` }}
+              >
+                ▲
+              </span>
+              <span>TARGET {hud.missionDistanceMeters}m</span>
+            </div>
+          )}
+
+          {hud.companionDroneText && (
+            <div className="ui-hud-panel-dark border-[#21968B] px-3 py-1 text-[11px] font-bold text-[#7FD4DE] max-w-md truncate">
+              {hud.companionDroneText}
             </div>
           )}
         </div>
@@ -709,7 +754,38 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                   stroke="#FFF9F0"
                   strokeWidth="1.5"
                 />
+                <line
+                  x1="44"
+                  y1="42"
+                  x2={needleX2}
+                  y2={needleY2}
+                  stroke="#26211E"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                />
+                <circle cx="44" cy="42" r="3" fill="#EC6D2C" />
               </svg>
+            </div>
+
+            <div className="mt-1.5 flex items-center justify-between gap-2 text-[10px] font-extrabold text-[#61564E]">
+              <span className="inline-flex items-center gap-1.5">
+                <span
+                  data-testid="hud-gear"
+                  className="px-1.5 py-0.5 rounded bg-[#26211E] text-[#FFE08A] tabular-nums leading-none"
+                >
+                  G{gearLabel}
+                </span>
+                <span className="tabular-nums">{hud.rpm ?? 950} RPM</span>
+              </span>
+              <div className="w-16 h-1.5 rounded-full bg-[#E6D3B5] overflow-hidden border border-[#CBB18D]">
+                <div
+                  className="h-full transition-[width] duration-75"
+                  style={{
+                    width: `${rpmPct}%`,
+                    backgroundColor: rpmPct > 82 ? '#E65448' : '#EC6D2C',
+                  }}
+                />
+              </div>
             </div>
 
             <div className="mt-2 flex items-center justify-between text-[10px] font-extrabold text-[#61564E]">
@@ -748,8 +824,28 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           </div>
         </div>
 
-        {/* Bottom-Center: Landmark Proximity Interaction Card + Controls Strip */}
+        {/* Bottom-Center: Landmark Proximity Interaction Card + Live Captions / Hints + Controls Strip */}
         <div className="flex flex-col items-center gap-2">
+          {hud.freedToast && (
+            <div className="ui-hud-panel-dark border-[#21968B] px-3 py-1 text-[11px] font-extrabold text-[#7FD4DE]">
+              {hud.freedToast}
+            </div>
+          )}
+          {hud.driftHint && (
+            <div className="ui-hud-panel-dark border-[#EC6D2C] px-3 py-1 text-[11px] font-extrabold text-[#FFE08A]">
+              {hud.driftHint}
+            </div>
+          )}
+          {hud.audioCaptionText && (
+            <div
+              role="status"
+              aria-live="polite"
+              data-testid="hud-audio-caption"
+              className="ui-hud-panel-dark border-[#CBB18D] px-3 py-1 text-[11px] font-bold text-[#FFF9F0]"
+            >
+              [SFX] {hud.audioCaptionText}
+            </div>
+          )}
           {hud.nearestLandmark && !touchControlsVisible && (
             <button
               type="button"

@@ -5,15 +5,23 @@ import {
   Check,
   Copy,
   ExternalLink,
+  FileText,
   Globe,
   Mail,
   MapPin,
   Phone,
+  Printer,
   Send,
 } from 'lucide-react';
 import { PortfolioLayout } from '../components/PortfolioLayout';
 import { ProfileAvatar } from '../components/ProfileAvatar';
-import { DEVELOPER_PROFILE, SERVICES_LIST } from '../data/portfolioData';
+import {
+  DEVELOPER_PROFILE,
+  JOURNEY_MILESTONES,
+  PORTFOLIO_PROJECTS,
+  SERVICES_LIST,
+  SKILLS_CATALOG,
+} from '../data/portfolioData';
 
 export const ContactPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -29,6 +37,7 @@ export const ContactPage: React.FC = () => {
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
   const [copiedEmail, setCopiedEmail] = useState(false);
+  const [copiedCv, setCopiedCv] = useState(false);
   const [draftReady, setDraftReady] = useState<{
     mailtoHref: string;
     summaryText: string;
@@ -83,6 +92,35 @@ export const ContactPage: React.FC = () => {
       window.setTimeout(() => setCopiedDraft(false), 2200);
     } catch {
       setCopiedDraft(false);
+    }
+  };
+
+  const handleCopyCvSummary = async () => {
+    const cvText = [
+      `${DEVELOPER_PROFILE.name} — ${DEVELOPER_PROFILE.role}`,
+      `Location: ${DEVELOPER_PROFILE.location} | Languages: ${DEVELOPER_PROFILE.languages.join(', ')}`,
+      `Education: ${DEVELOPER_PROFILE.institution} (${DEVELOPER_PROFILE.educationPeriod})`,
+      `Freelance: ${DEVELOPER_PROFILE.freelancePeriod} — ${DEVELOPER_PROFILE.freelanceSummary}`,
+      `Contact: ${DEVELOPER_PROFILE.email} | ${DEVELOPER_PROFILE.phone}`,
+      `GitHub: ${DEVELOPER_PROFILE.githubUrl} | LinkedIn: ${DEVELOPER_PROFILE.linkedinUrl}`,
+      '',
+      `Highlighted Projects (${PORTFOLIO_PROJECTS.length} total):`,
+      ...PORTFOLIO_PROJECTS.slice(0, 5).map(
+        (p) => `- ${p.title} (${p.status}): ${p.technologies.join(', ')}`,
+      ),
+      '',
+      `Core Skills (${SKILLS_CATALOG.length} cataloged): ${SKILLS_CATALOG.map((s) => s.name).join(', ')}`,
+      '',
+      'Milestones:',
+      ...JOURNEY_MILESTONES.map((m) => `- ${m.title} (${m.organization}, ${m.period})`),
+    ].join('\n');
+
+    try {
+      await navigator.clipboard.writeText(cvText);
+      setCopiedCv(true);
+      window.setTimeout(() => setCopiedCv(false), 2200);
+    } catch {
+      setCopiedCv(false);
     }
   };
 
@@ -212,6 +250,35 @@ export const ContactPage: React.FC = () => {
                 <span>Open LinkedIn</span>
                 <ExternalLink className="w-3.5 h-3.5" />
               </a>
+            </div>
+          </div>
+
+          <div className="ui-card p-5 space-y-3">
+            <div className="flex items-center gap-2 text-xs font-extrabold tracking-wider text-[#21968B]">
+              <FileText className="w-4 h-4" />
+              <span>VERIFIED PORTFOLIO SUMMARY</span>
+            </div>
+            <p className="text-xs font-semibold text-[#61564E] leading-relaxed">
+              Copy a plain-text resume snapshot compiled strictly from Sanjaya&apos;s verified NIBM profile, skills, and {PORTFOLIO_PROJECTS.length} documented projects, or print this page.
+            </p>
+            <div className="flex flex-wrap gap-2.5">
+              <button
+                type="button"
+                data-testid="copy-cv-summary"
+                onClick={handleCopyCvSummary}
+                className="ui-btn ui-btn-secondary px-3.5 py-2 text-xs border-[#26211E]"
+              >
+                {copiedCv ? <Check className="w-3.5 h-3.5 text-[#5E915E]" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedCv ? 'CV Summary Copied' : 'Copy CV Summary'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="ui-btn ui-btn-outline px-3.5 py-2 text-xs"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print View</span>
+              </button>
             </div>
           </div>
         </div>

@@ -179,7 +179,7 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
     clearcoat: 0.9,
     clearcoatRoughness: 0.06,
     transparent: true,
-    opacity: 0.86,
+    opacity: 0.62,
   });
   const tireMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
@@ -525,6 +525,39 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
   rearWin.rotation.x = 0.55;
 
   chassisGroup.add(windshield, aPillarL, aPillarR, wiperL, wiperR, sideWinL, sideWinR, rearWin);
+
+  // 4B. Detailed Cockpit Interior (Bucket Seats, Dashboard Console, Instrument Screen & Steering Wheel)
+  const seatBackGeo = new THREE.BoxGeometry(0.4, 0.48, 0.11);
+  const headrestGeo = new THREE.BoxGeometry(0.24, 0.16, 0.1);
+  const dashGeo = new THREE.BoxGeometry(1.22, 0.18, 0.34);
+  const dashScreenGeo = new THREE.BoxGeometry(0.28, 0.12, 0.04);
+  const steerColGeo = new THREE.CylinderGeometry(0.03, 0.035, 0.28, 8);
+  steerColGeo.rotateX(Math.PI * 0.32);
+  const steerRimGeo = new THREE.TorusGeometry(0.145, 0.024, 8, 16);
+  geometries.push(seatBackGeo, headrestGeo, dashGeo, dashScreenGeo, steerColGeo, steerRimGeo);
+
+  for (const sx of [-0.34, 0.34]) {
+    const seatBack = new THREE.Mesh(seatBackGeo, trimMat);
+    seatBack.position.set(sx, 0.98, 0.34);
+    seatBack.rotation.x = 0.16;
+    const headrest = new THREE.Mesh(headrestGeo, accentMat);
+    headrest.position.set(sx, 1.27, 0.39);
+    chassisGroup.add(seatBack, headrest);
+  }
+  const dashMesh = new THREE.Mesh(dashGeo, trimMat);
+  dashMesh.position.set(0, 0.98, -0.34);
+  const dashScreen = new THREE.Mesh(dashScreenGeo, headlightMat);
+  dashScreen.position.set(0.05, 1.04, -0.2);
+  const steerCol = new THREE.Mesh(steerColGeo, metalMat);
+  steerCol.position.set(-0.34, 0.99, -0.22);
+  const cabinSteerWheel = new THREE.Group();
+  cabinSteerWheel.position.set(-0.34, 1.06, -0.14);
+  cabinSteerWheel.rotation.x = -0.36;
+  const steerRim = new THREE.Mesh(steerRimGeo, trimMat);
+  const steerHub = new THREE.Mesh(dashScreenGeo, accentMat);
+  steerHub.scale.set(0.32, 0.55, 0.7);
+  cabinSteerWheel.add(steerRim, steerHub);
+  chassisGroup.add(dashMesh, dashScreen, steerCol, cabinSteerWheel);
 
   // 5. Tubular Roof Rack Rails
   const rackRailGeo = new THREE.CylinderGeometry(0.04, 0.04, 1.02, 8);
@@ -1028,6 +1061,8 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
     dt: number,
     wheelCompressions: [number, number, number, number] = [0.4, 0.4, 0.4, 0.4],
     isDrifting = false,
+    isBraking = false,
+    throttleInput = 0,
   ) => {
     const wheelRadius = 0.43;
     spinAngle -= (speedMs / wheelRadius) * dt;
@@ -1051,10 +1086,24 @@ export function createVehicleRig(initialConfig: VehicleConfig): VehicleRig {
     currentSteerAngle = THREE.MathUtils.damp(currentSteerAngle, targetSteer, 12, dt);
     frontLeftSteer.rotation.y = currentSteerAngle;
     frontRightSteer.rotation.y = currentSteerAngle;
+    cabinSteerWheel.rotation.z = -currentSteerAngle * 1.6;
 
     const driftLean = isDrifting ? -steerInput * 0.08 : 0;
     const targetRoll = -steerInput * Math.min(1, Math.abs(speedMs) / 14) * 0.06 + driftLean;
     chassisGroup.rotation.z = THREE.MathUtils.damp(chassisGroup.rotation.z, targetRoll, 10, dt);
+
+    // Subtle squat under acceleration and dive under braking
+    const targetPitch = THREE.MathUtils.clamp(
+      (isBraking ? 0.042 : -throttleInput * 0.028) - (isBoosting ? 0.018 : 0),
+      -0.05,
+      0.05,
+    );
+    chassisGroup.rotation.x = THREE.MathUtils.damp(chassisGroup.rotation.x, targetPitch, 9, dt);
+
+    // Dynamic brake / reverse light intensity
+    const reversing = speedMs < -0.5;
+    taillightMat.emissiveIntensity = isBraking ? 1.9 : reversing ? 1.45 : 0.72;
+    taillightMat.color.setHex(reversing && !isBraking ? 0xffe8c2 : 0xee5d52);
 
     boostFlameLeft.visible = isBoosting;
     boostFlameRight.visible = isBoosting;

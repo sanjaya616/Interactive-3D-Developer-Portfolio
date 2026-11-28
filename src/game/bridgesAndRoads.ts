@@ -15,17 +15,25 @@ import {
 } from './physicsMath';
 import {
   DIRECTIONAL_SIGNS,
+  PADDOCK_CENTER,
+  PADDOCK_ENTRY_POS,
+  PADDOCK_TRACK_DEF,
+  PLAZA_RADIUS,
+  RING_ROAD_DEF,
   ROAD_JUNCTION_DISCS,
   ROAD_SEGMENTS,
   WEST_RIDGE_TUNNEL_DEF,
+  getTrimmedRoadSegmentRange,
   isPointClearForProp,
 } from './worldLayout';
+import { ROAD_LAYER_OFFSETS } from './worldConstants';
 import type { ProceduralTextureSet } from './proceduralTextures';
 import type { StaticBoxColliderDef } from './worldEnvironment';
 
 export interface BridgesAndRoadsBuild {
   updateLighting: (weather: WeatherMode, motionTime: number, nightGlowOverride?: number) => void;
   setWetness: (wetness: number) => void;
+  setRoadLayerDebug: (enabled: boolean) => void;
 }
 
 function createDirectionalBoardTexture(label: string, arrow = '→'): THREE.CanvasTexture {
@@ -54,8 +62,8 @@ function createDirectionalBoardTexture(label: string, arrow = '→'): THREE.Canv
 }
 
 /**
- * Builds a terrain-conforming horizontal ribbon mesh between two XZ points with proportional UV tiling
- * so striped asphalt and gravel paths follow slopes smoothly with zero buried or floating ends.
+ * Builds a terrain-conforming horizontal ribbon mesh between two XZ points at ~1.0m longitudinal steps
+ * with proportional UV tiling so asphalt and gravel paths follow slopes smoothly with zero clipping.
  */
 function buildTerrainRibbonGeometry(
   x1: number,
@@ -69,7 +77,7 @@ function buildTerrainRibbonGeometry(
   const dx = x2 - x1;
   const dz = z2 - z1;
   const len = Math.hypot(dx, dz) || 1;
-  const steps = Math.max(4, Math.ceil(len / 2.2));
+  const steps = Math.max(4, Math.ceil(len));
   const nx = -dz / len;
   const nz = dx / len;
   const hw = width * 0.5;
@@ -109,6 +117,102 @@ function buildTerrainRibbonGeometry(
 }
 
 /**
+ * Merges indexed position+uv BufferGeometries cleanly into one BufferGeometry to minimize draw calls.
+ */
+function mergeSimpleGeometries(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  let totalVerts = 0;
+  for (const g of parts) {
+    totalVerts += g.attributes.position.count;
+  }
+  const positions = new Float32Array(totalVerts * 3);
+  const uvs = new Float32Array(totalVerts * 2);
+  const indices: number[] = [];
+
+  let vertOffset = 0;
+  for (const g of parts) {
+    const posAttr = g.attributes.position as THREE.BufferAttribute;
+    const uvAttr = g.attributes.uv as THREE.BufferAttribute | undefined;
+    const count = posAttr.count;
+    positions.set(posAttr.array as Float32Array, vertOffset * 3);
+    if (uvAttr) {
+      uvs.set(uvAttr.array as Float32Array, vertOffset * 2);
+    }
+    const idx = g.getIndex();
+    if (idx) {
+      for (let i = 0; i < idx.count; i++) {
+        indices.push(idx.getX(i) + vertOffset);
+      }
+    } else {
+      for (let i = 0; i < count; i++) {
+        indices.push(vertOffset + i);
+      }
+    }
+    vertOffset += count;
+    g.dispose();
+  }
+
+  const merged = new THREE.BufferGeometry();
+  merged.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  merged.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  merged.setIndex(indices);
+  merged.computeVertexNormals();
+  return merged;
+}
+
+/**
+ * Splits a trimmed road segment around intersections with Sunlit Ring Road or Paddock Oval
+ * so ribbons stop cleanly at junctions without double-layering flat asphalt.
+ */
+function getNonOverlappingSubSpans(
+  seg: (typeof ROAD_SEGMENTS)[number],
+): { x1: number; z1: number; x2: number; z2: number }[] {
+  const [t0, t1] = getTrimmedRoadSegmentRange(seg);
+  const dx = seg.x2 - seg.x1;
+  const dz = seg.z2 - seg.z1;
+  const len = Math.hypot(dx, dz) || 1;
+  const spans: { x1: number; z1: number; x2: number; z2: number }[] = [];
+
+  const isInsideCrossRing = (t: number) => {
+    const x = seg.x1 + dx * t;
+    const z = seg.z1 + dz * t;
+    const r = Math.hypot(x, z);
+    if (Math.abs(r - RING_ROAD_DEF.radius) <= RING_ROAD_DEF.halfWidth + 0.15) return true;
+    const distPad = Math.hypot(x - PADDOCK_CENTER.x, z - PADDOCK_CENTER.z);
+    if (Math.abs(distPad - PADDOCK_TRACK_DEF.radius) <= PADDOCK_TRACK_DEF.width * 0.5 + 0.15) return true;
+    return false;
+  };
+
+  const samples = Math.max(12, Math.ceil(len * 2));
+  let spanStart: number | null = null;
+  for (let i = 0; i <= samples; i++) {
+    const t = t0 + (t1 - t0) * (i / samples);
+    const blocked = isInsideCrossRing(t);
+    if (!blocked && spanStart === null) {
+      spanStart = t;
+    } else if (blocked && spanStart !== null) {
+      if ((t - spanStart) * len >= 1.2) {
+        spans.push({
+          x1: seg.x1 + dx * spanStart,
+          z1: seg.z1 + dz * spanStart,
+          x2: seg.x1 + dx * t,
+          z2: seg.z1 + dz * t,
+        });
+      }
+      spanStart = null;
+    }
+  }
+  if (spanStart !== null && (t1 - spanStart) * len >= 1.2) {
+    spans.push({
+      x1: seg.x1 + dx * spanStart,
+      z1: seg.z1 + dz * spanStart,
+      x2: seg.x1 + dx * t1,
+      z2: seg.z1 + dz * t1,
+    });
+  }
+  return spans;
+}
+
+/**
  * Builds raised beveled curb ribbons flanking the left and right edges of a road segment.
  */
 function buildRoadEdgeCurbGeometry(
@@ -123,7 +227,7 @@ function buildRoadEdgeCurbGeometry(
   const dx = x2 - x1;
   const dz = z2 - z1;
   const len = Math.hypot(dx, dz) || 1;
-  const steps = Math.max(3, Math.ceil(len / 2.6));
+  const steps = Math.max(4, Math.ceil(len));
   const nx = -dz / len;
   const nz = dx / len;
   const innerOff = roadWidth * 0.5 - 0.02;
@@ -162,7 +266,6 @@ function buildRoadEdgeCurbGeometry(
       if (i < steps) {
         const a = vStart + i * 4;
         const b = a + 4;
-        // Top cap + outer face + inner face
         if (sideSign > 0) {
           indices.push(a + 1, b + 1, a + 2, a + 2, b + 1, b + 2);
           indices.push(a + 0, b + 0, a + 1, a + 1, b + 0, b + 1);
@@ -253,6 +356,9 @@ export function buildBridgesAndRoadNetwork(
     bumpScale: 0.045,
     roughness: 0.85,
     metalness: 0.04,
+    polygonOffset: true,
+    polygonOffsetFactor: ROAD_LAYER_OFFSETS.asphalt.polygonOffsetFactor,
+    polygonOffsetUnits: ROAD_LAYER_OFFSETS.asphalt.polygonOffsetUnits,
   });
   const solidRoadMat = new THREE.MeshStandardMaterial({
     color: 0x4b4440,
@@ -260,6 +366,9 @@ export function buildBridgesAndRoadNetwork(
     bumpScale: 0.045,
     roughness: 0.85,
     metalness: 0.04,
+    polygonOffset: true,
+    polygonOffsetFactor: ROAD_LAYER_OFFSETS.junction.polygonOffsetFactor,
+    polygonOffsetUnits: ROAD_LAYER_OFFSETS.junction.polygonOffsetUnits,
   });
   const gravelMat = new THREE.MeshStandardMaterial({
     color: 0xa2886a,
@@ -267,12 +376,18 @@ export function buildBridgesAndRoadNetwork(
     bumpScale: 0.12,
     roughness: 0.94,
     metalness: 0.01,
+    polygonOffset: true,
+    polygonOffsetFactor: ROAD_LAYER_OFFSETS.gravel.polygonOffsetFactor,
+    polygonOffsetUnits: ROAD_LAYER_OFFSETS.gravel.polygonOffsetUnits,
   });
   const plazaTopMat = new THREE.MeshStandardMaterial({
     map: procTex.plazaMedallion,
     bumpMap: procTex.stoneMasonryBump,
     bumpScale: 0.05,
     roughness: 0.78,
+    polygonOffset: true,
+    polygonOffsetFactor: ROAD_LAYER_OFFSETS.asphalt.polygonOffsetFactor,
+    polygonOffsetUnits: ROAD_LAYER_OFFSETS.asphalt.polygonOffsetUnits,
   });
   const masonryMat = new THREE.MeshStandardMaterial({
     map: procTex.stoneMasonryAlbedo,
@@ -287,6 +402,9 @@ export function buildBridgesAndRoadNetwork(
     bumpScale: 0.06,
     roughness: 0.84,
     metalness: 0.02,
+    polygonOffset: true,
+    polygonOffsetFactor: ROAD_LAYER_OFFSETS.curb.polygonOffsetFactor,
+    polygonOffsetUnits: ROAD_LAYER_OFFSETS.curb.polygonOffsetUnits,
   });
   const timberLightMat = new THREE.MeshStandardMaterial({
     map: procTex.woodPlankAlbedo,
@@ -324,15 +442,25 @@ export function buildBridgesAndRoadNetwork(
     roughness: 0.68,
     metalness: 0.06,
   });
-  const stripeWhiteMat = new THREE.MeshBasicMaterial({ color: 0xf7efe2 });
-  const stripeAmberMat = new THREE.MeshBasicMaterial({ color: 0xffe4a8 });
+  const stripeWhiteMat = new THREE.MeshBasicMaterial({
+    color: 0xf7efe2,
+    polygonOffset: true,
+    polygonOffsetFactor: ROAD_LAYER_OFFSETS.markings.polygonOffsetFactor,
+    polygonOffsetUnits: ROAD_LAYER_OFFSETS.markings.polygonOffsetUnits,
+  });
+  const stripeAmberMat = new THREE.MeshBasicMaterial({
+    color: 0xffe4a8,
+    polygonOffset: true,
+    polygonOffsetFactor: ROAD_LAYER_OFFSETS.markings.polygonOffsetFactor,
+    polygonOffsetUnits: ROAD_LAYER_OFFSETS.markings.polygonOffsetUnits,
+  });
   const roadArrowMat = new THREE.MeshStandardMaterial({
     map: procTex.roadArrowDecal,
     transparent: true,
     roughness: 0.75,
     polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2,
+    polygonOffsetFactor: ROAD_LAYER_OFFSETS.decals.polygonOffsetFactor,
+    polygonOffsetUnits: ROAD_LAYER_OFFSETS.decals.polygonOffsetUnits,
   });
   materials.push(
     roadMat,
@@ -351,6 +479,28 @@ export function buildBridgesAndRoadNetwork(
     roadArrowMat,
   );
 
+  // Layer debug toggle materials cache (F4 key)
+  const debugLayerMats = new Map<string, THREE.MeshBasicMaterial>();
+  for (const [layerName, cfg] of Object.entries(ROAD_LAYER_OFFSETS)) {
+    const dm = new THREE.MeshBasicMaterial({
+      color: cfg.debugColor,
+      polygonOffset: true,
+      polygonOffsetFactor: cfg.polygonOffsetFactor,
+      polygonOffsetUnits: cfg.polygonOffsetUnits,
+    });
+    debugLayerMats.set(layerName, dm);
+    materials.push(dm);
+  }
+  const layeredMeshes: { mesh: THREE.Mesh; layer: keyof typeof ROAD_LAYER_OFFSETS; normalMat: THREE.Material }[] = [];
+  const registerLayeredMesh = (
+    mesh: THREE.Mesh,
+    layer: keyof typeof ROAD_LAYER_OFFSETS,
+    normalMat: THREE.Material,
+  ) => {
+    mesh.renderOrder = ROAD_LAYER_OFFSETS[layer].renderOrder;
+    layeredMeshes.push({ mesh, layer, normalMat });
+  };
+
   // Shared lantern sub-parts
   const sharedLantern = {
     baseGeo: new THREE.CylinderGeometry(0.16, 0.2, 0.14, 8),
@@ -367,31 +517,103 @@ export function buildBridgesAndRoadNetwork(
   );
 
   // =========================================================================
-  // 1. STARTING PLAZA MEDALLION & SUNLIT RING ROAD (cut cleanly at Lagoon Viaduct)
+  // 1. STARTING PLAZA MEDALLION & SUNLIT RING ROAD (open curbs at intersections)
   // =========================================================================
-  const plazaBaseGeo = new THREE.CylinderGeometry(13.65, 14.35, 0.15, 48);
-  const plazaCurbRingGeo = new THREE.TorusGeometry(13.65, 0.16, 6, 48);
+  const plazaBaseGeo = new THREE.CylinderGeometry(PLAZA_RADIUS, PLAZA_RADIUS + 0.7, 0.12, 48);
+  const plazaCurbRingGeo = new THREE.TorusGeometry(PLAZA_RADIUS, 0.14, 6, 48);
   plazaCurbRingGeo.rotateX(Math.PI / 2);
-  const plazaMedallionGeo = new THREE.CircleGeometry(13.15, 48);
+  const plazaMedallionGeo = new THREE.CircleGeometry(PLAZA_RADIUS - 0.5, 48);
   plazaMedallionGeo.rotateX(-Math.PI / 2);
 
-  // Note: RingGeometry(rIn, rOut, segs, phiSegs, thetaStart, thetaLen) after rotateX(-PI/2)
-  // maps canvas phi -> world atan2(z, x) = -phi. Viaduct covers atan2 in [-1.08, -0.40] => phi in [0.40, 1.08].
-  const ringThetaStart = -RING_LAGOON_VIADUCT.angEnd; // 0.40 ->Wait: skip [0.40, 1.08], so draw [1.08 .. 2*PI + 0.40]
-  const ringSkipStart = -RING_LAGOON_VIADUCT.angEnd; // 0.40
-  const ringSkipEnd = -RING_LAGOON_VIADUCT.angStart; // 1.08
+  const ringSkipStart = -RING_LAGOON_VIADUCT.angEnd;
+  const ringSkipEnd = -RING_LAGOON_VIADUCT.angStart;
   const ringThetaLen = Math.PI * 2 - (ringSkipEnd - ringSkipStart);
   const ringDrawStart = ringSkipEnd;
-  void ringThetaStart;
 
-  const innerRingRoadGeo = new THREE.RingGeometry(31.4, 36.6, 72, 1, ringDrawStart, ringThetaLen);
+  const innerRingRoadGeo = new THREE.RingGeometry(
+    RING_ROAD_DEF.radius - RING_ROAD_DEF.halfWidth,
+    RING_ROAD_DEF.radius + RING_ROAD_DEF.halfWidth,
+    72,
+    1,
+    ringDrawStart,
+    ringThetaLen,
+  );
   innerRingRoadGeo.rotateX(-Math.PI / 2);
   const innerRingLineGeo = new THREE.RingGeometry(33.9, 34.14, 72, 1, ringDrawStart, ringThetaLen);
   innerRingLineGeo.rotateX(-Math.PI / 2);
-  const innerCurbOutGeo = new THREE.RingGeometry(36.48, 36.88, 72, 1, ringDrawStart, ringThetaLen);
-  innerCurbOutGeo.rotateX(-Math.PI / 2);
-  const innerCurbInGeo = new THREE.RingGeometry(31.12, 31.52, 72, 1, ringDrawStart, ringThetaLen);
-  innerCurbInGeo.rotateX(-Math.PI / 2);
+
+  // Helper to build ring curb sectors with open gaps wherever spokes enter Ring Road
+  const buildSegmentedRingArc = (
+    rIn: number,
+    rOut: number,
+    skipAnglesWorld: { ang: number; halfGap: number }[],
+    alwaysSkipRange?: { start: number; end: number },
+  ): THREE.BufferGeometry => {
+    const segs = 120;
+    const pos: number[] = [];
+    const uv: number[] = [];
+    const idx: number[] = [];
+    let vCount = 0;
+
+    const isGap = (worldAng: number) => {
+      if (alwaysSkipRange && worldAng >= alwaysSkipRange.start && worldAng <= alwaysSkipRange.end) return true;
+      for (const gap of skipAnglesWorld) {
+        const diff = Math.abs(Math.atan2(Math.sin(worldAng - gap.ang), Math.cos(worldAng - gap.ang)));
+        if (diff <= gap.halfGap) return true;
+      }
+      return false;
+    };
+
+    for (let i = 0; i < segs; i++) {
+      const a0 = -Math.PI + (i / segs) * Math.PI * 2;
+      const a1 = -Math.PI + ((i + 1) / segs) * Math.PI * 2;
+      const am = (a0 + a1) * 0.5;
+      if (isGap(am)) continue;
+      const c0 = Math.cos(a0);
+      const s0 = Math.sin(a0);
+      const c1 = Math.cos(a1);
+      const s1 = Math.sin(a1);
+      pos.push(
+        c0 * rIn, 0, s0 * rIn,
+        c0 * rOut, 0, s0 * rOut,
+        c1 * rOut, 0, s1 * rOut,
+        c1 * rIn, 0, s1 * rIn,
+      );
+      uv.push(0, 0, 1, 0, 1, 1, 0, 1);
+      idx.push(vCount, vCount + 2, vCount + 1, vCount, vCount + 3, vCount + 2);
+      vCount += 4;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
+  };
+
+  const ringOutGaps = [
+    { ang: -Math.PI / 2, halfGap: 0.11 }, // North lookout ramp
+    { ang: Math.PI / 2, halfGap: 0.10 }, // South Signal blvd
+    { ang: Math.atan2(-23.1, -24.9), halfGap: 0.10 }, // Studio
+    { ang: Math.atan2(-2.0, -34.0), halfGap: 0.10 }, // West tunnel
+    { ang: Math.atan2(26.7, -21.1), halfGap: 0.10 }, // Delivery
+    { ang: Math.atan2(4.2, 33.7), halfGap: 0.11 }, // East workshop/bridge
+    { ang: Math.atan2(25.1, 23.0), halfGap: 0.10 }, // Signal workshop
+  ];
+  const ringInGaps = [
+    { ang: -Math.PI / 2, halfGap: 0.10 }, // North plaza spoke
+    { ang: Math.PI / 2, halfGap: 0.10 }, // South plaza spoke
+    { ang: Math.atan2(-23.1, -24.9), halfGap: 0.10 }, // Studio spoke
+  ];
+
+  const innerCurbOutGeo = buildSegmentedRingArc(36.48, 36.88, ringOutGaps, {
+    start: RING_LAGOON_VIADUCT.angStart,
+    end: RING_LAGOON_VIADUCT.angEnd,
+  });
+  const innerCurbInGeo = buildSegmentedRingArc(31.12, 31.52, ringInGaps, {
+    start: RING_LAGOON_VIADUCT.angStart,
+    end: RING_LAGOON_VIADUCT.angEnd,
+  });
 
   geometries.push(
     plazaBaseGeo,
@@ -404,88 +626,136 @@ export function buildBridgesAndRoadNetwork(
   );
 
   const plazaMesh = new THREE.Mesh(plazaBaseGeo, curbStoneMat);
-  plazaMesh.position.set(0, 0.015, 0);
+  plazaMesh.position.set(0, -0.02, 0);
   plazaMesh.receiveShadow = true;
+  registerLayeredMesh(plazaMesh, 'curb', curbStoneMat);
   const plazaRim = new THREE.Mesh(plazaCurbRingGeo, masonryMat);
-  plazaRim.position.set(0, 0.075, 0);
+  plazaRim.position.set(0, 0.04, 0);
   const plazaTop = new THREE.Mesh(plazaMedallionGeo, plazaTopMat);
-  plazaTop.position.set(0, 0.095, 0);
+  plazaTop.position.set(0, ROAD_LAYER_OFFSETS.asphalt.yOffset + 0.022, 0);
   plazaTop.receiveShadow = true;
+  registerLayeredMesh(plazaTop, 'asphalt', plazaTopMat);
 
   const innerRingRoad = new THREE.Mesh(innerRingRoadGeo, solidRoadMat);
-  innerRingRoad.position.set(0, 0.025, 0);
+  innerRingRoad.position.set(0, ROAD_LAYER_OFFSETS.junction.yOffset - 0.004, 0);
   innerRingRoad.receiveShadow = true;
+  registerLayeredMesh(innerRingRoad, 'asphalt', solidRoadMat);
   const innerRingLine = new THREE.Mesh(innerRingLineGeo, stripeAmberMat);
-  innerRingLine.position.set(0, 0.036, 0);
+  innerRingLine.position.set(0, ROAD_LAYER_OFFSETS.markings.yOffset, 0);
+  registerLayeredMesh(innerRingLine, 'markings', stripeAmberMat);
   const ringCurbOut = new THREE.Mesh(innerCurbOutGeo, curbStoneMat);
-  ringCurbOut.position.set(0, 0.038, 0);
+  ringCurbOut.position.set(0, ROAD_LAYER_OFFSETS.curb.yOffset, 0);
+  registerLayeredMesh(ringCurbOut, 'curb', curbStoneMat);
   const ringCurbIn = new THREE.Mesh(innerCurbInGeo, curbStoneMat);
-  ringCurbIn.position.set(0, 0.038, 0);
+  ringCurbIn.position.set(0, ROAD_LAYER_OFFSETS.curb.yOffset, 0);
+  registerLayeredMesh(ringCurbIn, 'curb', curbStoneMat);
 
   scene.add(plazaMesh, plazaRim, plazaTop, innerRingRoad, innerRingLine, ringCurbOut, ringCurbIn);
 
   // =========================================================================
-  // 2. TERRAIN-CONFORMING SPOKE ROADS, JUNCTION APRONS & TRAILS
+  // 2. TERRAIN-CONFORMING TRIMMED SPOKE ROADS (MERGED BY SURFACE), JUNCTION DISCS & TRAILS
   // =========================================================================
-  const trailStakeGeo = new THREE.CylinderGeometry(0.08, 0.1, 0.55, 6);
-  geometries.push(trailStakeGeo);
+  const asphaltParts: THREE.BufferGeometry[] = [];
+  const gravelParts: THREE.BufferGeometry[] = [];
+  const curbParts: THREE.BufferGeometry[] = [];
+  const dashGeo = new THREE.PlaneGeometry(0.18, 1.45);
+  dashGeo.rotateX(-Math.PI / 2);
+  geometries.push(dashGeo);
+  const dashMatrices: THREE.Matrix4[] = [];
+  const dummyObj = new THREE.Object3D();
 
   for (const seg of ROAD_SEGMENTS) {
     if (seg.surface === 'ramp') continue;
     const isGravel = seg.surface === 'gravel';
-    const ribbonGeo = buildTerrainRibbonGeometry(
-      seg.x1,
-      seg.z1,
-      seg.x2,
-      seg.z2,
-      seg.width,
-      isGravel ? 0.042 : 0.035,
-      isGravel ? 5.4 : 7.6,
-    );
-    geometries.push(ribbonGeo);
-    const roadMesh = new THREE.Mesh(ribbonGeo, isGravel ? gravelMat : roadMat);
-    roadMesh.receiveShadow = true;
-    scene.add(roadMesh);
-
-    if (seg.addCurbs) {
-      const curbGeo = buildRoadEdgeCurbGeometry(
-        seg.x1,
-        seg.z1,
-        seg.x2,
-        seg.z2,
+    const subSpans = getNonOverlappingSubSpans(seg);
+    for (const sp of subSpans) {
+      const ribbonGeo = buildTerrainRibbonGeometry(
+        sp.x1,
+        sp.z1,
+        sp.x2,
+        sp.z2,
         seg.width,
-        0.25,
-        0.085,
+        isGravel ? ROAD_LAYER_OFFSETS.gravel.yOffset + 0.01 : ROAD_LAYER_OFFSETS.asphalt.yOffset,
+        isGravel ? 5.4 : 7.6,
       );
-      geometries.push(curbGeo);
-      const curbMesh = new THREE.Mesh(curbGeo, curbStoneMat);
-      curbMesh.receiveShadow = true;
-      scene.add(curbMesh);
-    }
+      if (isGravel) gravelParts.push(ribbonGeo);
+      else asphaltParts.push(ribbonGeo);
 
-    if (seg.id.startsWith('trail-pine-')) {
-      const dx = seg.x2 - seg.x1;
-      const dz = seg.z2 - seg.z1;
-      const len = Math.hypot(dx, dz) || 1;
-      const nx = -dz / len;
-      const nz = dx / len;
-      const stake = new THREE.Mesh(trailStakeGeo, timberDarkMat);
-      const sx = (seg.x1 + seg.x2) * 0.5 + nx * 1.78;
-      const sz = (seg.z1 + seg.z2) * 0.5 + nz * 1.78;
-      stake.position.set(sx, computeGroundHeight(sx, sz) + 0.24, sz);
-      scene.add(stake);
+      if (seg.addCurbs) {
+        const curbGeo = buildRoadEdgeCurbGeometry(
+          sp.x1,
+          sp.z1,
+          sp.x2,
+          sp.z2,
+          seg.width,
+          0.25,
+          0.085,
+        );
+        curbParts.push(curbGeo);
+      }
+
+      // Stop dashed center markings >= 2.2m cleanly outside junctions
+      if (!isGravel) {
+        const sdx = sp.x2 - sp.x1;
+        const sdz = sp.z2 - sp.z1;
+        const slen = Math.hypot(sdx, sdz);
+        if (slen > 6) {
+          const yaw = Math.atan2(sdx, sdz);
+          for (let dist = 2.4; dist <= slen - 2.4; dist += 3.6) {
+            const px = sp.x1 + (sdx / slen) * dist;
+            const pz = sp.z1 + (sdz / slen) * dist;
+            dummyObj.position.set(px, computeGroundHeight(px, pz) + ROAD_LAYER_OFFSETS.markings.yOffset, pz);
+            dummyObj.rotation.set(0, yaw, 0);
+            dummyObj.updateMatrix();
+            dashMatrices.push(dummyObj.matrix.clone());
+          }
+        }
+      }
     }
   }
 
-  // Smooth intersection asphalt fillet discs at spoke-to-ring & hub junctions
-  const junctionDiscGeo = new THREE.CylinderGeometry(3.2, 3.35, 0.06, 20);
+  if (gravelParts.length > 0) {
+    const mergedGravel = mergeSimpleGeometries(gravelParts);
+    geometries.push(mergedGravel);
+    const gravelMesh = new THREE.Mesh(mergedGravel, gravelMat);
+    gravelMesh.receiveShadow = true;
+    registerLayeredMesh(gravelMesh, 'gravel', gravelMat);
+    scene.add(gravelMesh);
+  }
+  if (asphaltParts.length > 0) {
+    const mergedAsphalt = mergeSimpleGeometries(asphaltParts);
+    geometries.push(mergedAsphalt);
+    const asphaltMesh = new THREE.Mesh(mergedAsphalt, roadMat);
+    asphaltMesh.receiveShadow = true;
+    registerLayeredMesh(asphaltMesh, 'asphalt', roadMat);
+    scene.add(asphaltMesh);
+  }
+  if (curbParts.length > 0) {
+    const mergedCurbs = mergeSimpleGeometries(curbParts);
+    geometries.push(mergedCurbs);
+    const curbsMesh = new THREE.Mesh(mergedCurbs, curbStoneMat);
+    curbsMesh.receiveShadow = true;
+    registerLayeredMesh(curbsMesh, 'curb', curbStoneMat);
+    scene.add(curbsMesh);
+  }
+  if (dashMatrices.length > 0) {
+    const dashInst = new THREE.InstancedMesh(dashGeo, stripeAmberMat, dashMatrices.length);
+    dashMatrices.forEach((m, i) => dashInst.setMatrixAt(i, m));
+    dashInst.instanceMatrix.needsUpdate = true;
+    dashInst.renderOrder = ROAD_LAYER_OFFSETS.markings.renderOrder;
+    scene.add(dashInst);
+  }
+
+  // Smooth intersection asphalt fillet discs matching ROAD_JUNCTION_DISCS exact radii
+  const junctionDiscGeo = new THREE.CylinderGeometry(1.0, 1.05, 0.03, 24);
   geometries.push(junctionDiscGeo);
   for (const jc of ROAD_JUNCTION_DISCS) {
     const gy = computeGroundHeight(jc.x, jc.z);
     const jDisc = new THREE.Mesh(junctionDiscGeo, solidRoadMat);
-    jDisc.position.set(jc.x, gy + 0.015, jc.z);
-    jDisc.scale.set(jc.scale, 1, jc.scale);
+    jDisc.position.set(jc.x, gy + ROAD_LAYER_OFFSETS.junction.yOffset - 0.012, jc.z);
+    jDisc.scale.set(jc.radius, 1, jc.radius);
     jDisc.receiveShadow = true;
+    registerLayeredMesh(jDisc, 'junction', solidRoadMat);
     scene.add(jDisc);
   }
 
@@ -493,26 +763,28 @@ export function buildBridgesAndRoadNetwork(
   const hillRampSeg = ROAD_SEGMENTS.find((s) => s.id === 'lookout-ramp');
   const hillZ1 = hillRampSeg?.z1 ?? -36.5;
   const hillZ2 = hillRampSeg?.z2 ?? -69.0;
-  const hillRibbonGeo = buildTerrainRibbonGeometry(0, hillZ1, 0, hillZ2, 5.6, 0.045, 7.2);
+  const hillRibbonGeo = buildTerrainRibbonGeometry(0, hillZ1, 0, hillZ2, 5.6, ROAD_LAYER_OFFSETS.asphalt.yOffset, 7.2);
   const hillCurbGeo = buildRoadEdgeCurbGeometry(0, hillZ1, 0, hillZ2, 5.6, 0.3, 0.11);
   geometries.push(hillRibbonGeo, hillCurbGeo);
   const hillRoad = new THREE.Mesh(hillRibbonGeo, roadMat);
   hillRoad.receiveShadow = true;
+  registerLayeredMesh(hillRoad, 'asphalt', roadMat);
   const hillCurbs = new THREE.Mesh(hillCurbGeo, curbStoneMat);
   hillCurbs.receiveShadow = true;
+  registerLayeredMesh(hillCurbs, 'curb', curbStoneMat);
   scene.add(hillRoad, hillCurbs);
 
   const guardPostGeo = new THREE.CylinderGeometry(0.11, 0.13, 0.85, 8);
   const guardRailSegGeo = new THREE.BoxGeometry(0.12, 0.13, 2.75);
   geometries.push(guardPostGeo, guardRailSegGeo);
   for (const sideX of [-3.15, 3.15]) {
-    for (let z = -39; z >= -59; z -= 2.5) {
+    for (let z = -39; z >= -62; z -= 2.5) {
       const gy = computeGroundHeight(sideX, z);
       const post = new THREE.Mesh(guardPostGeo, timberDarkMat);
       post.position.set(sideX, gy + 0.42, z);
       post.castShadow = true;
       scene.add(post);
-      if (z > -59) {
+      if (z > -62) {
         const nextGy = computeGroundHeight(sideX, z - 2.5);
         const rail = new THREE.Mesh(guardRailSegGeo, handrailTerracottaMat);
         rail.position.set(sideX, (gy + nextGy) * 0.5 + 0.66, z - 1.25);
@@ -521,57 +793,61 @@ export function buildBridgesAndRoadNetwork(
         scene.add(rail);
       }
     }
-    const midGy = computeGroundHeight(sideX, -49);
+    const midGy = computeGroundHeight(sideX, -50.5);
     staticColliders.push({
       x: sideX + (sideX < 0 ? -0.15 : 0.15),
       y: midGy + 0.65,
-      z: -49,
+      z: -50.5,
       hx: 0.22,
       hy: 2.8,
-      hz: 10.2,
+      hz: 11.7,
       ignoreCamera: true,
       friction: 0.04,
       kind: 'ramp-rail',
     });
   }
 
-  // Pavement Directional Arrows along key roads (strictly on dry ground asphalt)
+  // Pavement Directional Arrows along key roads (strictly on dry ground asphalt decals layer)
   const arrowGeo = new THREE.PlaneGeometry(1.75, 3.3);
   arrowGeo.rotateX(-Math.PI / 2);
   geometries.push(arrowGeo);
   const roadArrows: { x: number; z: number; yaw: number }[] = [
-    { x: 0, z: -18, yaw: 0 }, // Toward Lookout Hill
-    { x: 0, z: -42, yaw: 0 }, // Up Lookout Hill Ramp
-    { x: 0, z: 22, yaw: Math.PI }, // Toward Signal House
-    { x: 40, z: -8.5, yaw: 0 }, // Main Bridge South entry north-bound
-    { x: 40, z: -35.5, yaw: Math.PI }, // Main Bridge North entry south-bound
-    { x: 13.8, z: -31.1, yaw: -1.2 }, // NW Ring Viaduct North-West approach
-    { x: 32.1, z: -10.8, yaw: 0.35 }, // NW Ring Viaduct South-East approach
+    { x: 0, z: -22, yaw: 0 },
+    { x: 0, z: -44, yaw: 0 },
+    { x: 0, z: 22, yaw: Math.PI },
+    { x: 40, z: -8.5, yaw: 0 },
+    { x: 40, z: -35.5, yaw: Math.PI },
+    { x: 13.8, z: -31.1, yaw: -1.2 },
+    { x: 32.1, z: -10.8, yaw: 0.35 },
     {
-      x: -52.5,
-      z: 9.55,
+      x: -58.5,
+      z: 13.3,
       yaw: Math.atan2(-WEST_RIDGE_TUNNEL_DEF.dirX, -WEST_RIDGE_TUNNEL_DEF.dirZ),
-    }, // Along Paddock Pit Lane past West Ridge Tunnel
+    },
   ];
   for (const arr of roadArrows) {
     const gy = computeGroundHeight(arr.x, arr.z);
     const m = new THREE.Mesh(arrowGeo, roadArrowMat);
-    m.position.set(arr.x, gy + 0.055, arr.z);
+    m.position.set(arr.x, gy + ROAD_LAYER_OFFSETS.decals.yOffset, arr.z);
     m.rotation.y = arr.yaw;
+    registerLayeredMesh(m, 'decals', roadArrowMat);
     scene.add(m);
   }
 
   // =========================================================================
-  // 3. THE PADDOCK OVAL RACING CIRCUIT & START/FINISH GANTRY (-66, 18)
+  // 3. THE PADDOCK OVAL RACING CIRCUIT & START/FINISH GANTRY (PADDOCK_CENTER)
   // =========================================================================
-  const paddockRingGeo = new THREE.RingGeometry(15.4, 20.6, 60);
+  const padEntryAng = Math.atan2(PADDOCK_ENTRY_POS.z - PADDOCK_CENTER.z, PADDOCK_ENTRY_POS.x - PADDOCK_CENTER.x);
+  const paddockRingGeo = new THREE.RingGeometry(
+    PADDOCK_TRACK_DEF.innerRadius,
+    PADDOCK_TRACK_DEF.outerRadius,
+    60,
+  );
   paddockRingGeo.rotateX(-Math.PI / 2);
   const paddockCenterLineGeo = new THREE.RingGeometry(17.9, 18.14, 60);
   paddockCenterLineGeo.rotateX(-Math.PI / 2);
-  const paddockCurbInGeo = new THREE.RingGeometry(15.1, 15.45, 60);
-  paddockCurbInGeo.rotateX(-Math.PI / 2);
-  const paddockCurbOutGeo = new THREE.RingGeometry(20.55, 20.92, 60);
-  paddockCurbOutGeo.rotateX(-Math.PI / 2);
+  const paddockCurbInGeo = buildSegmentedRingArc(15.1, 15.45, [{ ang: padEntryAng, halfGap: 0.16 }]);
+  const paddockCurbOutGeo = buildSegmentedRingArc(20.55, 20.92, [{ ang: padEntryAng, halfGap: 0.16 }]);
   const paddockStartStripGeo = new THREE.PlaneGeometry(5.1, 2.5);
   paddockStartStripGeo.rotateX(-Math.PI / 2);
   geometries.push(
@@ -583,29 +859,42 @@ export function buildBridgesAndRoadNetwork(
   );
 
   const paddockRing = new THREE.Mesh(paddockRingGeo, solidRoadMat);
-  paddockRing.position.set(-66, 0.024, 18);
+  paddockRing.position.set(PADDOCK_CENTER.x, ROAD_LAYER_OFFSETS.asphalt.yOffset, PADDOCK_CENTER.z);
   paddockRing.receiveShadow = true;
+  registerLayeredMesh(paddockRing, 'asphalt', solidRoadMat);
   const paddockCenterLine = new THREE.Mesh(paddockCenterLineGeo, stripeAmberMat);
-  paddockCenterLine.position.set(-66, 0.034, 18);
+  paddockCenterLine.position.set(PADDOCK_CENTER.x, ROAD_LAYER_OFFSETS.markings.yOffset, PADDOCK_CENTER.z);
+  registerLayeredMesh(paddockCenterLine, 'markings', stripeAmberMat);
   const paddockCurbIn = new THREE.Mesh(paddockCurbInGeo, curbStoneMat);
-  paddockCurbIn.position.set(-66, 0.03, 18);
+  paddockCurbIn.position.set(PADDOCK_CENTER.x, ROAD_LAYER_OFFSETS.curb.yOffset, PADDOCK_CENTER.z);
+  registerLayeredMesh(paddockCurbIn, 'curb', curbStoneMat);
   const paddockCurbOut = new THREE.Mesh(paddockCurbOutGeo, curbStoneMat);
-  paddockCurbOut.position.set(-66, 0.03, 18);
-  const stripMat = new THREE.MeshStandardMaterial({ map: procTex.checkeredStrip, roughness: 0.72 });
+  paddockCurbOut.position.set(PADDOCK_CENTER.x, ROAD_LAYER_OFFSETS.curb.yOffset, PADDOCK_CENTER.z);
+  registerLayeredMesh(paddockCurbOut, 'curb', curbStoneMat);
+  const stripMat = new THREE.MeshStandardMaterial({
+    map: procTex.checkeredStrip,
+    roughness: 0.72,
+    polygonOffset: true,
+    polygonOffsetFactor: ROAD_LAYER_OFFSETS.decals.polygonOffsetFactor,
+    polygonOffsetUnits: ROAD_LAYER_OFFSETS.decals.polygonOffsetUnits,
+  });
   materials.push(stripMat);
   const startStrip = new THREE.Mesh(paddockStartStripGeo, stripMat);
-  startStrip.position.set(-66, 0.04, 0);
+  startStrip.position.set(PADDOCK_CENTER.x, ROAD_LAYER_OFFSETS.decals.yOffset, PADDOCK_CENTER.z - 18);
+  registerLayeredMesh(startStrip, 'decals', stripMat);
   scene.add(paddockRing, paddockCenterLine, paddockCurbIn, paddockCurbOut, startStrip);
 
-  // Alternating Red & Cream Apex Curb Blocks on Paddock Corners
+  // Alternating Red & Cream Apex Curb Blocks on Paddock Corners (clear of Paddock entry)
   const curbBlockGeo = new THREE.BoxGeometry(0.95, 0.16, 1.35);
   geometries.push(curbBlockGeo);
   const curbRedMat = new THREE.MeshStandardMaterial({ color: 0xe65448, roughness: 0.65 });
   materials.push(curbRedMat);
   for (let i = 0; i < 20; i++) {
     const ang = (i / 20) * Math.PI * 2;
-    const cx = -66 + Math.cos(ang) * 21.15;
-    const cz = 18 + Math.sin(ang) * 21.15;
+    const diff = Math.abs(Math.atan2(Math.sin(ang - padEntryAng), Math.cos(ang - padEntryAng)));
+    if (diff < 0.24) continue;
+    const cx = PADDOCK_CENTER.x + Math.cos(ang) * 21.15;
+    const cz = PADDOCK_CENTER.z + Math.sin(ang) * 21.15;
     const cb = new THREE.Mesh(curbBlockGeo, i % 2 === 0 ? curbRedMat : creamMat);
     cb.position.set(cx, 0.08, cz);
     cb.rotation.y = -ang;
@@ -613,27 +902,28 @@ export function buildBridgesAndRoadNetwork(
     scene.add(cb);
   }
 
-  // Start / Finish Overhead Gantry Arch at (-66, 0) outside the oval track width
+  // Start / Finish Overhead Gantry Arch straddling North Paddock Curve
   const gantryPillarGeo = new THREE.BoxGeometry(0.45, 4.4, 0.45);
-  const gantryCrossGeo = new THREE.BoxGeometry(7.2, 0.65, 0.42);
+  const gantryCrossGeo = new THREE.BoxGeometry(0.42, 0.65, 7.2);
   const gantryBannerGeo = new THREE.PlaneGeometry(5.6, 0.56);
   geometries.push(gantryPillarGeo, gantryCrossGeo, gantryBannerGeo);
   const gantryGroup = new THREE.Group();
-  gantryGroup.position.set(-66, 0, 0);
+  gantryGroup.position.set(PADDOCK_CENTER.x, 0, PADDOCK_CENTER.z - 18);
   const gLeft = new THREE.Mesh(gantryPillarGeo, roofDarkMat);
-  gLeft.position.set(-3.35, 2.2, 0);
+  gLeft.position.set(0, 2.2, -3.35);
   gLeft.castShadow = true;
   const gRight = new THREE.Mesh(gantryPillarGeo, roofDarkMat);
-  gRight.position.set(3.35, 2.2, 0);
+  gRight.position.set(0, 2.2, 3.35);
   gRight.castShadow = true;
   const gBar = new THREE.Mesh(gantryCrossGeo, terracottaMat);
   gBar.position.set(0, 4.25, 0);
   gBar.castShadow = true;
   const gFrontFace = new THREE.Mesh(gantryBannerGeo, stripMat);
-  gFrontFace.position.set(0, 4.25, 0.22);
+  gFrontFace.position.set(0.22, 4.25, 0);
+  gFrontFace.rotation.y = Math.PI / 2;
   const gBackFace = new THREE.Mesh(gantryBannerGeo, stripMat);
-  gBackFace.position.set(0, 4.25, -0.22);
-  gBackFace.rotation.y = Math.PI;
+  gBackFace.position.set(-0.22, 4.25, 0);
+  gBackFace.rotation.y = -Math.PI / 2;
   gantryGroup.add(gLeft, gRight, gBar, gFrontFace, gBackFace);
   scene.add(gantryGroup);
 
@@ -1738,26 +2028,15 @@ export function buildBridgesAndRoadNetwork(
   }
 
   // =========================================================================
-  // 10. THREE WARM UNSHADOWED BRIDGE POINT LIGHTS (atmospheric dusk/night glow)
+  // 10. POOLED BRIDGE POINT LIGHTS (atmospheric dusk/night glow without excessive light count)
   // =========================================================================
-  const mainBridgeLight = new THREE.PointLight(0xffb866, 0.65, 28, 1.6);
+  const mainBridgeLight = new THREE.PointLight(0xffb866, 0.65, 34, 1.5);
   mainBridgeLight.position.set(MAIN_LAGOON_BRIDGE.x, 3.6, MAIN_LAGOON_BRIDGE.zCenter);
 
-  const viaductMidAng = (RING_LAGOON_VIADUCT.angStart + RING_LAGOON_VIADUCT.angEnd) * 0.5;
-  const viaductLight = new THREE.PointLight(0xffb866, 0.55, 24, 1.6);
-  viaductLight.position.set(
-    Math.cos(viaductMidAng) * RING_LAGOON_VIADUCT.radius,
-    3.1,
-    Math.sin(viaductMidAng) * RING_LAGOON_VIADUCT.radius,
-  );
-
-  const coveBridgeLight = new THREE.PointLight(0xffb866, 0.55, 22, 1.6);
+  const coveBridgeLight = new THREE.PointLight(0xffb866, 0.55, 28, 1.5);
   coveBridgeLight.position.set(SOUTH_COVE_BRIDGE.xCenter, 2.75, SOUTH_COVE_BRIDGE.z);
 
-  const forestBridgeLight = new THREE.PointLight(0xffb866, 0.55, 22, 1.6);
-  forestBridgeLight.position.set(FOREST_BROOK_BRIDGE.xCenter, 3.6, FOREST_BROOK_BRIDGE.z);
-
-  scene.add(mainBridgeLight, viaductLight, coveBridgeLight, forestBridgeLight);
+  scene.add(mainBridgeLight, coveBridgeLight);
 
   const updateLighting = (
     weather: WeatherMode,
@@ -1770,15 +2049,13 @@ export function buildBridgesAndRoadNetwork(
         ? 1.0
         : weather === 'sunset'
           ? 0.56
-          : weather === 'rain' || weather === 'fog'
+          : weather === 'rain' || weather === 'fog' || weather === 'storm'
             ? 0.34
             : 0.0);
     const baseIntensity = 0.55 + targetGlow * 2.35;
     const flicker = Math.sin(motionTime * 2.2) * (0.08 + targetGlow * 0.1);
     mainBridgeLight.intensity = baseIntensity + flicker;
-    viaductLight.intensity = baseIntensity * 0.85 + flicker * 0.8;
-    coveBridgeLight.intensity = baseIntensity * 0.82 - flicker * 0.6;
-    forestBridgeLight.intensity = baseIntensity * 0.82 + flicker * 0.5;
+    coveBridgeLight.intensity = baseIntensity * 0.84 - flicker * 0.6;
   };
 
   const setWetness = (wetness: number) => {
@@ -1794,5 +2071,11 @@ export function buildBridgesAndRoadNetwork(
     timberDarkMat.roughness = THREE.MathUtils.lerp(0.89, 0.48, w);
   };
 
-  return { updateLighting, setWetness };
+  const setRoadLayerDebug = (enabled: boolean) => {
+    for (const item of layeredMeshes) {
+      item.mesh.material = enabled ? (debugLayerMats.get(item.layer) ?? item.normalMat) : item.normalMat;
+    }
+  };
+
+  return { updateLighting, setWetness, setRoadLayerDebug };
 }

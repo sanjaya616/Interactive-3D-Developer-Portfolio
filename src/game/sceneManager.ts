@@ -29,7 +29,9 @@ import {
 } from './physicsMath';
 import { createVehicleRig, type VehicleRig } from './vehicleModel';
 import { ensureRapierReady, RapierVehiclePhysics } from './vehiclePhysics';
+import { TERRAIN_SPAN, WORLD_HALF_SPAN } from './worldConstants';
 import { buildWorldEnvironment, type WorldBuildResult } from './worldEnvironment';
+import { computeRoadNetworkRoute } from './worldLayout';
 
 export interface DevPerfStats {
   fps: number;
@@ -81,6 +83,22 @@ function detectSoftwareGl(): boolean {
   }
 }
 
+function createSoftParticleTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+  const grad = ctx.createRadialGradient(32, 32, 3, 32, 32, 30);
+  grad.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+  grad.addColorStop(0.45, 'rgba(255, 255, 255, 0.55)');
+  grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 export class SceneManager {
   private container: HTMLElement;
   private callbacks: SceneManagerCallbacks;
@@ -116,6 +134,7 @@ export class SceneManager {
   private lastPointerY = 0;
 
   // Pooled dust particle ring buffer (48 instances)
+  private particleTex: THREE.CanvasTexture | null = null;
   private dustMesh: THREE.InstancedMesh | null = null;
   private dustParticles: {
     x: number;
@@ -152,8 +171,12 @@ export class SceneManager {
   // DEV-only performance & collision debug state
   private devAccumMs = 0;
   private devFrames = 0;
+  private fpsFrames = 0;
+  private fpsAccumMs = 0;
   private collisionDebugGroup: THREE.Group | null = null;
   private collisionDebugVisible = false;
+  private roadLayerDebug = false;
+  private propAuditVisible = false;
   private collisionVehicleBox: THREE.LineSegments | null = null;
   private collisionDynBoxes: THREE.LineSegments[] = [];
   private collisionDebugDisposables: {
@@ -161,11 +184,28 @@ export class SceneManager {
     materials: THREE.Material[];
   } = { geometries: [], materials: [] };
 
-  // Pooled tire skid mark ring buffer (96 instances)
-  private skidMesh: THREE.InstancedMesh | null = null;
+  // Continuous fading tire skid-mark ribbon buffer (96 quad segments, zero per-frame allocations)
+  private skidMesh: THREE.Mesh | null = null;
+  private skidPosAttr: THREE.BufferAttribute | null = null;
+  private skidColorAttr: THREE.BufferAttribute | null = null;
+  private skidPosArr = new Float32Array(96 * 4 * 3);
+  private skidColorArr = new Float32Array(96 * 4 * 4);
+  private skidAges = new Float32Array(96);
   private skidCursor = 0;
-  private skidDummy = new THREE.Object3D();
+  private skidAnyActive = false;
+  private skidPrevValid = false;
+  private skidPrevLeft = { x: 0, y: -50, z: 0, nx: 1, nz: 0 };
+  private skidPrevRight = { x: 0, y: -50, z: 0, nx: 1, nz: 0 };
   private skidDistAccum = 0;
+
+  // Waypoint, GPS, Companion Drone & Accessibility Captions
+  private activeWaypointId: string | null = null;
+  private activeWaypointOverride: { x: number; z: number } | undefined = undefined;
+  private gpsRouteAccum = 1;
+  private companionDroneText: string | null = null;
+  private audioCaptionText: string | null = null;
+  private audioCaptionTtl = 0;
+  private freedToastTtl = 0;
 
   constructor(
     container: HTMLElement,
@@ -281,13 +321,19 @@ export class SceneManager {
 
     const maxAniso = renderer.capabilities.getMaxAnisotropy();
     const worldEnv = buildWorldEnvironment(scene, maxAniso);
+    let totalOrbsCount = 0;
+    let collectedOrbsCount = 0;
     for (const col of worldEnv.collectibles) {
+      if (col.kind === 'orb') totalOrbsCount++;
       if (this.collectedSet.has(col.id)) {
         col.collected = true;
         col.mesh.visible = false;
+        if (col.kind === 'orb') collectedOrbsCount++;
       }
     }
+    worldEnv.setAllOrbsCollected(totalOrbsCount > 0 && collectedOrbsCount >= totalOrbsCount);
     worldEnv.applyWeatherMode(this.settings.weatherMode, true);
+    worldEnv.setDayNightCycle(Boolean(this.settings.dayNightCycle));
     worldEnv.setWindMode(this.settings.windMode ?? 'auto');
     worldEnv.setPerformanceProfile(
       this.settings.quality,
@@ -319,11 +365,29 @@ export class SceneManager {
       worldEnv.dynamicProps,
       initialVehicle,
     );
+    physics.setAssistLevel(this.settings.assistLevel ?? 'normal');
+    physics.setWetness(
+      this.settings.weatherMode === 'rain' || this.settings.weatherMode === 'storm' ? 1 : 0,
+    );
     this.physics = physics;
 
-    // Pooled dust particles (48 instances)
-    const dustGeo = new THREE.DodecahedronGeometry(0.24, 0);
-    const dustMat = new THREE.MeshStandardMaterial({ color: 0xf4e6ce, roughness: 0.95 });
+    soundEngine.setCaptionCallback((text) => {
+      this.audioCaptionText = text;
+      this.audioCaptionTtl = 1.6;
+    });
+
+    // Pooled radial-gradient dust & splash billboard particles
+    const particleTex = createSoftParticleTexture();
+    this.particleTex = particleTex;
+
+    const dustGeo = new THREE.PlaneGeometry(0.75, 0.75);
+    const dustMat = new THREE.MeshBasicMaterial({
+      map: particleTex,
+      color: 0xf4e6ce,
+      transparent: true,
+      opacity: 0.72,
+      depthWrite: false,
+    });
     const dustMesh = new THREE.InstancedMesh(dustGeo, dustMat, 48);
     dustMesh.frustumCulled = false;
     for (let i = 0; i < 48; i++) {
@@ -339,12 +403,13 @@ export class SceneManager {
     this.dustMesh = dustMesh;
 
     // Pooled water splash particles (36 instances)
-    const splashGeo = new THREE.DodecahedronGeometry(0.18, 0);
-    const splashMat = new THREE.MeshStandardMaterial({
+    const splashGeo = new THREE.PlaneGeometry(0.62, 0.62);
+    const splashMat = new THREE.MeshBasicMaterial({
+      map: particleTex,
       color: 0xd8fff9,
-      roughness: 0.35,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.8,
+      depthWrite: false,
     });
     const splashMesh = new THREE.InstancedMesh(splashGeo, splashMat, 36);
     splashMesh.frustumCulled = false;
@@ -360,24 +425,45 @@ export class SceneManager {
     scene.add(splashMesh);
     this.splashMesh = splashMesh;
 
-    // Pooled tire skid marks (96 instances)
-    const skidGeo = new THREE.PlaneGeometry(0.32, 0.72);
-    skidGeo.rotateX(-Math.PI / 2);
-    const skidMat = new THREE.MeshBasicMaterial({
-      color: 0x221f1d,
-      transparent: true,
-      opacity: 0.52,
-      depthWrite: false,
-    });
-    const skidMesh = new THREE.InstancedMesh(skidGeo, skidMat, 96);
-    skidMesh.frustumCulled = false;
-    for (let i = 0; i < 96; i++) {
-      this.skidDummy.position.set(0, -50, 0);
-      this.skidDummy.scale.setScalar(0);
-      this.skidDummy.updateMatrix();
-      skidMesh.setMatrixAt(i, this.skidDummy.matrix);
+    // Continuous fading tire skid-mark ribbon mesh (96 connected quads)
+    const skidGeo = new THREE.BufferGeometry();
+    const skidIndices = new Uint16Array(96 * 6);
+    for (let q = 0; q < 96; q++) {
+      const v = q * 4;
+      const idx = q * 6;
+      skidIndices[idx] = v;
+      skidIndices[idx + 1] = v + 1;
+      skidIndices[idx + 2] = v + 2;
+      skidIndices[idx + 3] = v + 2;
+      skidIndices[idx + 4] = v + 1;
+      skidIndices[idx + 5] = v + 3;
+      this.skidAges[q] = 999;
+      for (let k = 0; k < 4; k++) {
+        this.skidPosArr[(v + k) * 3 + 1] = -50;
+      }
     }
-    skidMesh.instanceMatrix.needsUpdate = true;
+    const skidPosAttr = new THREE.BufferAttribute(this.skidPosArr, 3);
+    skidPosAttr.setUsage(THREE.DynamicDrawUsage);
+    const skidColorAttr = new THREE.BufferAttribute(this.skidColorArr, 4);
+    skidColorAttr.setUsage(THREE.DynamicDrawUsage);
+    skidGeo.setAttribute('position', skidPosAttr);
+    skidGeo.setAttribute('color', skidColorAttr);
+    skidGeo.setIndex(new THREE.BufferAttribute(skidIndices, 1));
+    this.skidPosAttr = skidPosAttr;
+    this.skidColorAttr = skidColorAttr;
+    const skidMat = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.6,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -4,
+    });
+    const skidMesh = new THREE.Mesh(skidGeo, skidMat);
+    skidMesh.frustumCulled = false;
+    skidMesh.renderOrder = 8;
     scene.add(skidMesh);
     this.skidMesh = skidMesh;
 
@@ -391,6 +477,9 @@ export class SceneManager {
     window.addEventListener('pointerup', this.handlePointerUp);
     renderer.domElement.addEventListener('wheel', this.handleWheel, { passive: false });
     window.addEventListener('resize', this.handleResize);
+    if (import.meta.env.DEV) {
+      window.addEventListener('keydown', this.handleDevKeyDown);
+    }
 
     this.cameraRig.updateTitleFlyover(0);
     renderer.render(scene, cameraRig.camera);
@@ -495,7 +584,26 @@ export class SceneManager {
     colorHex?: string,
     overridePos?: { x: number; z: number },
   ): void {
+    this.activeWaypointId = landmarkId;
+    this.activeWaypointOverride = overridePos;
+    this.gpsRouteAccum = 1;
     this.worldEnv?.setWaypointTarget(landmarkId, colorHex, overridePos);
+    if (!landmarkId) {
+      this.worldEnv?.updateGpsRoute(null);
+      return;
+    }
+    if (this.physics && !overridePos) {
+      const pos = this.physics.chassisBody.translation();
+      const route = computeRoadNetworkRoute(pos.x, pos.z, landmarkId);
+      if (route && route.roadPoints.length >= 2) {
+        const pts = route.entryConnector
+          ? [route.entryConnector[0], ...route.roadPoints]
+          : route.roadPoints;
+        this.worldEnv?.updateGpsRoute(pts, colorHex);
+      } else {
+        this.worldEnv?.updateGpsRoute(null);
+      }
+    }
   }
 
   syncSavedRaceData(best: number | null, last: number | null, ghost: GhostSample[]): void {
@@ -589,11 +697,16 @@ export class SceneManager {
       this.splashMesh.visible = !next.reducedMotion && next.quality !== 'low';
     }
     this.worldEnv?.applyWeatherMode(next.weatherMode, false);
+    this.worldEnv?.setDayNightCycle(Boolean(next.dayNightCycle));
     this.worldEnv?.setWindMode(next.windMode ?? 'auto');
     this.worldEnv?.setPerformanceProfile(
       next.quality,
       next.reducedMotion,
       this.isSoftwareGl,
+    );
+    this.physics?.setAssistLevel(next.assistLevel ?? 'normal');
+    this.physics?.setWetness(
+      next.weatherMode === 'rain' || next.weatherMode === 'storm' ? 1 : 0,
     );
     const ambientDark = next.weatherMode === 'night' || next.weatherMode === 'sunset';
     this.vehicleRig?.setHeadlightsOn(next.headlightsOn, ambientDark);
@@ -601,6 +714,25 @@ export class SceneManager {
       this.renderer.render(this.scene, this.cameraRig.camera);
     }
   }
+
+  private handleDevKeyDown = (e: KeyboardEvent): void => {
+    if (!import.meta.env.DEV) return;
+    if (e.code === 'F4') {
+      e.preventDefault();
+      this.roadLayerDebug = !this.roadLayerDebug;
+      this.worldEnv?.setRoadLayerDebug(this.roadLayerDebug);
+      this.callbacks.onToast?.(`DEV Road Layer Debug: ${this.roadLayerDebug ? 'ON' : 'OFF'}`);
+    } else if (e.code === 'F5') {
+      e.preventDefault();
+      const active = this.toggleCollisionDebug();
+      this.callbacks.onToast?.(`DEV Collision Wireframes: ${active ? 'ON' : 'OFF'}`);
+    } else if (e.code === 'F6') {
+      e.preventDefault();
+      this.propAuditVisible = !this.propAuditVisible;
+      this.worldEnv?.setPropAuditVisible(this.propAuditVisible);
+      this.callbacks.onToast?.(`DEV Prop Audit Rings: ${this.propAuditVisible ? 'ON' : 'OFF'}`);
+    }
+  };
 
   updateVehicleConfig(config: VehicleConfig): void {
     this.vehicleRig?.applyConfig(config);
@@ -632,8 +764,8 @@ export class SceneManager {
     grp.name = 'DEV_CollisionDebugOverlay';
 
     // 1. Terrain heightfield wireframe (green)
-    const span = 240;
-    const terrainPlane = new THREE.PlaneGeometry(span, span, 48, 48);
+    const span = TERRAIN_SPAN;
+    const terrainPlane = new THREE.PlaneGeometry(span, span, 60, 60);
     terrainPlane.rotateX(-Math.PI / 2);
     const posAttr = terrainPlane.attributes.position;
     for (let i = 0; i < posAttr.count; i++) {
@@ -707,9 +839,9 @@ export class SceneManager {
       this.collisionDynBoxes.push(wire);
     }
 
-    // 5. Vehicle chassis collider (yellow: cuboid 0.95 x 0.55 x 1.7)
+    // 5. Vehicle chassis collider (yellow: chamfered cuboid 0.83 x 0.43 x 1.58)
     const vehWire = new THREE.LineSegments(unitEdges, vehMat);
-    vehWire.scale.set(1.9, 1.1, 3.4);
+    vehWire.scale.set(1.66, 0.86, 3.16);
     grp.add(vehWire);
     this.collisionVehicleBox = vehWire;
 
@@ -847,8 +979,33 @@ export class SceneManager {
       }
     }
 
+    let missionDistanceMeters: number | null = null;
+    let missionBearingDeg: number | null = null;
+    const targetPt =
+      this.challengeMgr.getActiveTargetPoint() ??
+      this.activeWaypointOverride ??
+      (this.activeWaypointId
+        ? (() => {
+            const lm = WORLD_LANDMARKS.find((l) => l.id === this.activeWaypointId);
+            return lm ? { x: lm.position.x, z: lm.position.z } : null;
+          })()
+        : null);
+    if (targetPt) {
+      const dx = targetPt.x - pos.x;
+      const dz = targetPt.z - pos.z;
+      missionDistanceMeters = Math.round(Math.hypot(dx, dz));
+      const worldAngle = Math.atan2(-dx, -dz);
+      const relRad = Math.atan2(
+        Math.sin(worldAngle - this.physics.getYaw()),
+        Math.cos(worldAngle - this.physics.getYaw()),
+      );
+      missionBearingDeg = Math.round((-relRad * 180) / Math.PI);
+    }
+
     this.callbacks.onHudUpdate({
       speedKmh,
+      gear: this.physics.gear,
+      rpm: Math.round(this.physics.rpm),
       boostCharge: Math.round(this.physics.boostCharge),
       isBoosting: this.physics.isBoosting,
       isDrifting: this.physics.isDrifting,
@@ -875,6 +1032,14 @@ export class SceneManager {
       playerZ: pos.z,
       headingRad: this.physics.getYaw(),
       distanceDrivenMeters: this.physics.distanceDriven,
+      boundaryDistMeters: this.physics.boundaryDistMeters,
+      driftHint: this.physics.driftHint,
+      missionDistanceMeters,
+      missionBearingDeg,
+      companionDroneText: this.companionDroneText,
+      freedToast: this.freedToastTtl > 0 ? 'Freed onto nearest road' : null,
+      audioCaptionText:
+        this.settings.audioCaptions && this.audioCaptionTtl > 0 ? this.audioCaptionText : null,
       orbsFound,
       totalOrbs,
       tokensFound,
@@ -904,25 +1069,145 @@ export class SceneManager {
   }
 
   private laySkidMarks(pos: THREE.Vector3, yaw: number): void {
-    if (!this.skidMesh) return;
+    if (!this.skidPosAttr || !this.skidColorAttr) return;
     const cosY = Math.cos(yaw);
     const sinY = Math.sin(yaw);
-    for (const side of [-0.92, 0.92]) {
-      const idx = this.skidCursor;
-      this.skidCursor = (this.skidCursor + 1) % 96;
-      const wx = pos.x + side * cosY + 1.05 * sinY;
-      const wz = pos.z - side * sinY + 1.05 * cosY;
-      this.skidDummy.position.set(wx, pos.y + 0.04, wz);
-      this.skidDummy.rotation.set(0, yaw, 0);
-      this.skidDummy.scale.setScalar(1);
-      this.skidDummy.updateMatrix();
-      this.skidMesh.setMatrixAt(idx, this.skidDummy.matrix);
+    const lx = pos.x - 0.92 * cosY + 1.05 * sinY;
+    const lz = pos.z + 0.92 * sinY + 1.05 * cosY;
+    const rx = pos.x + 0.92 * cosY + 1.05 * sinY;
+    const rz = pos.z - 0.92 * sinY + 1.05 * cosY;
+    const y = pos.y + 0.045;
+
+    if (!this.skidPrevValid) {
+      this.skidPrevLeft.x = lx;
+      this.skidPrevLeft.y = y;
+      this.skidPrevLeft.z = lz;
+      this.skidPrevLeft.nx = cosY;
+      this.skidPrevLeft.nz = -sinY;
+      this.skidPrevRight.x = rx;
+      this.skidPrevRight.y = y;
+      this.skidPrevRight.z = rz;
+      this.skidPrevRight.nx = cosY;
+      this.skidPrevRight.nz = -sinY;
+      this.skidPrevValid = true;
+      return;
     }
-    this.skidMesh.instanceMatrix.needsUpdate = true;
+
+    const stepDist = Math.hypot(lx - this.skidPrevLeft.x, lz - this.skidPrevLeft.z);
+    if (stepDist > 4.5) {
+      this.skidPrevValid = false;
+      return;
+    }
+
+    const hw = 0.17;
+    const writeQuad = (
+      ax: number,
+      ay: number,
+      az: number,
+      anx: number,
+      anz: number,
+      bx: number,
+      by: number,
+      bz: number,
+      bnx: number,
+      bnz: number,
+    ) => {
+      const q = this.skidCursor;
+      this.skidCursor = (this.skidCursor + 1) % 96;
+      this.skidAges[q] = 0;
+      const vBase = q * 4 * 3;
+      this.skidPosArr[vBase] = ax - anx * hw;
+      this.skidPosArr[vBase + 1] = ay;
+      this.skidPosArr[vBase + 2] = az - anz * hw;
+      this.skidPosArr[vBase + 3] = ax + anx * hw;
+      this.skidPosArr[vBase + 4] = ay;
+      this.skidPosArr[vBase + 5] = az + anz * hw;
+      this.skidPosArr[vBase + 6] = bx - bnx * hw;
+      this.skidPosArr[vBase + 7] = by;
+      this.skidPosArr[vBase + 8] = bz - bnz * hw;
+      this.skidPosArr[vBase + 9] = bx + bnx * hw;
+      this.skidPosArr[vBase + 10] = by;
+      this.skidPosArr[vBase + 11] = bz + bnz * hw;
+
+      const cBase = q * 4 * 4;
+      for (let k = 0; k < 4; k++) {
+        this.skidColorArr[cBase + k * 4] = 0.13;
+        this.skidColorArr[cBase + k * 4 + 1] = 0.11;
+        this.skidColorArr[cBase + k * 4 + 2] = 0.1;
+        this.skidColorArr[cBase + k * 4 + 3] = 0.85;
+      }
+    };
+
+    writeQuad(
+      this.skidPrevLeft.x,
+      this.skidPrevLeft.y,
+      this.skidPrevLeft.z,
+      this.skidPrevLeft.nx,
+      this.skidPrevLeft.nz,
+      lx,
+      y,
+      lz,
+      cosY,
+      -sinY,
+    );
+    writeQuad(
+      this.skidPrevRight.x,
+      this.skidPrevRight.y,
+      this.skidPrevRight.z,
+      this.skidPrevRight.nx,
+      this.skidPrevRight.nz,
+      rx,
+      y,
+      rz,
+      cosY,
+      -sinY,
+    );
+
+    this.skidPrevLeft.x = lx;
+    this.skidPrevLeft.y = y;
+    this.skidPrevLeft.z = lz;
+    this.skidPrevLeft.nx = cosY;
+    this.skidPrevLeft.nz = -sinY;
+    this.skidPrevRight.x = rx;
+    this.skidPrevRight.y = y;
+    this.skidPrevRight.z = rz;
+    this.skidPrevRight.nx = cosY;
+    this.skidPrevRight.nz = -sinY;
+    this.skidAnyActive = true;
+    this.skidPosAttr.needsUpdate = true;
+    this.skidColorAttr.needsUpdate = true;
+  }
+
+  private updateSkids(dt: number): void {
+    if (!this.skidAnyActive || !this.skidColorAttr || !this.skidPosAttr) return;
+    let anyAlive = false;
+    const maxAge = 14.0;
+    for (let q = 0; q < 96; q++) {
+      if (this.skidAges[q] >= maxAge) continue;
+      this.skidAges[q] += dt;
+      const age = this.skidAges[q];
+      const cBase = q * 4 * 4;
+      if (age >= maxAge) {
+        const vBase = q * 4 * 3;
+        for (let k = 0; k < 4; k++) {
+          this.skidPosArr[vBase + k * 3 + 1] = -50;
+          this.skidColorArr[cBase + k * 4 + 3] = 0;
+        }
+        this.skidPosAttr.needsUpdate = true;
+      } else {
+        anyAlive = true;
+        const alpha = Math.max(0, 0.85 * (1 - age / maxAge));
+        for (let k = 0; k < 4; k++) {
+          this.skidColorArr[cBase + k * 4 + 3] = alpha;
+        }
+      }
+    }
+    this.skidColorAttr.needsUpdate = true;
+    this.skidAnyActive = anyAlive;
   }
 
   private updateDust(dt: number): void {
-    if (!this.dustMesh) return;
+    if (!this.dustMesh || !this.cameraRig) return;
     if (!this.dustAnyActive && !this.dustNeedsClear) return;
 
     let anyAlive = false;
@@ -934,9 +1219,11 @@ export class SceneManager {
         p.x += p.vx * dt;
         p.y += p.vy * dt;
         p.z += p.vz * dt;
-        const t = Math.max(0, p.life / p.maxLife);
+        const progress = 1 - Math.max(0, p.life / p.maxLife);
+        const scale = Math.sin(progress * Math.PI) * 1.3 + (1 - progress) * 0.4;
         this.dustDummy.position.set(p.x, p.y, p.z);
-        this.dustDummy.scale.setScalar(t * 1.15);
+        this.dustDummy.quaternion.copy(this.cameraRig.camera.quaternion);
+        this.dustDummy.scale.setScalar(Math.max(0, scale));
       } else {
         this.dustDummy.position.set(0, -50, 0);
         this.dustDummy.scale.setScalar(0);
@@ -965,7 +1252,7 @@ export class SceneManager {
   }
 
   private updateSplashes(dt: number): void {
-    if (!this.splashMesh) return;
+    if (!this.splashMesh || !this.cameraRig) return;
     if (!this.splashAnyActive && !this.splashNeedsClear) return;
 
     let anyAlive = false;
@@ -980,7 +1267,8 @@ export class SceneManager {
         p.z += p.vz * dt;
         const t = Math.max(0, p.life / p.maxLife);
         this.splashDummy.position.set(p.x, p.y, p.z);
-        this.splashDummy.scale.setScalar(t * 1.2);
+        this.splashDummy.quaternion.copy(this.cameraRig.camera.quaternion);
+        this.splashDummy.scale.setScalar(t * 1.25);
       } else {
         this.splashDummy.position.set(0, -50, 0);
         this.splashDummy.scale.setScalar(0);
@@ -1065,6 +1353,9 @@ export class SceneManager {
         this.cameraRig.adjustOrbit(gpLook.yawDelta, gpLook.pitchDelta);
       }
 
+      if (this.audioCaptionTtl > 0) this.audioCaptionTtl = Math.max(0, this.audioCaptionTtl - dt);
+      if (this.freedToastTtl > 0) this.freedToastTtl = Math.max(0, this.freedToastTtl - dt);
+
       const simOut = this.physics.step(intent, dt);
 
       this.vehicleRig.root.position.copy(simOut.position);
@@ -1076,6 +1367,16 @@ export class SceneManager {
         dt,
         simOut.wheelCompressions,
         this.physics.isDrifting,
+        intent.brake,
+        intent.throttle,
+      );
+
+      this.worldEnv?.updatePlayerContext(
+        simOut.position.x,
+        simOut.position.y,
+        simOut.position.z,
+        this.cameraRig.camera.position.x,
+        this.cameraRig.camera.position.z,
       );
 
       if (simOut.justJumped) {
@@ -1092,6 +1393,10 @@ export class SceneManager {
         if (this.physics.waterState !== 'dry') {
           this.spawnSplash(simOut.position.x, simOut.position.z, 1.45);
         }
+      }
+      if (simOut.justFreed) {
+        this.freedToastTtl = 2.2;
+        this.callbacks.onToast?.('Freed back onto nearest road.');
       }
       if (simOut.justRecovered) {
         soundEngine.playRecover();
@@ -1142,10 +1447,12 @@ export class SceneManager {
 
       if (!locked && !inWater && this.physics.isDrifting && this.physics.isGrounded && speedKmh > 12) {
         this.skidDistAccum += Math.abs(this.physics.forwardSpeed) * dt;
-        if (this.skidDistAccum >= 0.45) {
+        if (this.skidDistAccum >= 0.35) {
           this.skidDistAccum = 0;
           this.laySkidMarks(simOut.position, this.physics.getYaw());
         }
+      } else {
+        this.skidPrevValid = false;
       }
 
       if (!locked && speedKmh > 4 && this.physics.distanceDriven > 3.5) {
@@ -1161,6 +1468,8 @@ export class SceneManager {
         intent.brake,
         this.settings.weatherMode,
         inWater,
+        this.physics.gear,
+        this.physics.rpm,
       );
       this.cameraRig.updateGameplay(
         simOut.position,
@@ -1190,6 +1499,14 @@ export class SceneManager {
               this.collectedSet.size,
               this.worldEnv.collectibles.length,
             );
+            if (col.kind === 'orb') {
+              const allOrbsDone = this.worldEnv.collectibles.every(
+                (c) => c.kind !== 'orb' || c.collected,
+              );
+              if (allOrbsDone) {
+                this.worldEnv.setAllOrbsCollected(true);
+              }
+            }
           }
         }
       }
@@ -1223,6 +1540,55 @@ export class SceneManager {
         driftPenalizedNow: simOut.driftPenalizedNow,
       });
       this.applyChallengeEffects(cFx);
+
+      const aiTarget =
+        this.challengeMgr.getActiveTargetPoint() ??
+        (this.activeWaypointOverride
+          ? { x: this.activeWaypointOverride.x, z: this.activeWaypointOverride.z, label: 'Waypoint' }
+          : this.activeWaypointId
+            ? (() => {
+                const lm = WORLD_LANDMARKS.find((l) => l.id === this.activeWaypointId);
+                return lm ? { x: lm.position.x, z: lm.position.z, label: lm.title } : null;
+              })()
+            : null);
+
+      if (this.worldEnv) {
+        const aiOut = this.worldEnv.updateAiTraffic({
+          dt,
+          elapsed: this.elapsed,
+          playerX: simOut.position.x,
+          playerY: simOut.position.y,
+          playerZ: simOut.position.z,
+          playerYaw: this.physics.getYaw(),
+          playerSpeedMs: this.physics.forwardSpeed,
+          playerHeadingDeg: (this.physics.getYaw() * 180) / Math.PI,
+          raceActive:
+            this.challengeMgr.getRacePhase() === 'countdown' ||
+            this.challengeMgr.getRacePhase() === 'racing',
+          activeTarget: aiTarget,
+          reducedMotion: this.settings.reducedMotion,
+          quality: this.settings.quality,
+        });
+        this.companionDroneText = aiOut.companionDroneText;
+
+        if (this.activeWaypointId && !this.activeWaypointOverride) {
+          this.gpsRouteAccum += dt;
+          if (this.gpsRouteAccum >= 1.0) {
+            this.gpsRouteAccum = 0;
+            const route = computeRoadNetworkRoute(
+              simOut.position.x,
+              simOut.position.z,
+              this.activeWaypointId,
+            );
+            if (route && route.roadPoints.length >= 2) {
+              const pts = route.entryConnector
+                ? [route.entryConnector[0], ...route.roadPoints]
+                : route.roadPoints;
+              this.worldEnv.updateGpsRoute(pts);
+            }
+          }
+        }
+      }
 
       // Ghost Vehicle Playback
       const ghostPose = this.challengeMgr.sampleGhostPose(
@@ -1268,10 +1634,26 @@ export class SceneManager {
 
     this.updateDust(dt);
     this.updateSplashes(dt);
+    this.updateSkids(dt);
     if (import.meta.env.DEV && this.collisionDebugVisible) {
       this.syncCollisionDebugDynamic();
     }
     this.renderer.render(this.scene, this.cameraRig.camera);
+
+    // Adaptive DPR safeguard if FPS drops below 45fps over 60 frames
+    if (!this.isSoftwareGl) {
+      this.fpsAccumMs += rawFrameDt * 1000;
+      this.fpsFrames++;
+      if (this.fpsFrames >= 60) {
+        const avgFrameMs = this.fpsAccumMs / this.fpsFrames;
+        const curRatio = this.renderer.getPixelRatio();
+        if (avgFrameMs > 22.2 && curRatio > 1.0) {
+          this.renderer.setPixelRatio(Math.max(1.0, Number((curRatio * 0.8).toFixed(2))));
+        }
+        this.fpsAccumMs = 0;
+        this.fpsFrames = 0;
+      }
+    }
 
     if (import.meta.env.DEV && this.callbacks.onDevTelemetry) {
       this.devAccumMs += rawFrameDt * 1000;
@@ -1308,11 +1690,15 @@ export class SceneManager {
     window.removeEventListener('resize', this.handleResize);
     window.removeEventListener('pointermove', this.handlePointerMove);
     window.removeEventListener('pointerup', this.handlePointerUp);
+    if (import.meta.env.DEV) {
+      window.removeEventListener('keydown', this.handleDevKeyDown);
+    }
     if (this.renderer) {
       this.renderer.domElement.removeEventListener('pointerdown', this.handlePointerDown);
       this.renderer.domElement.removeEventListener('wheel', this.handleWheel);
     }
     this.controls.detach();
+    soundEngine.setCaptionCallback(null);
     soundEngine.updateEngine(0, false, false, false);
 
     this.vehicleRig?.dispose();
@@ -1324,6 +1710,8 @@ export class SceneManager {
     }
     this.envRenderTarget?.dispose();
     this.envRenderTarget = null;
+    this.particleTex?.dispose();
+    this.particleTex = null;
     if (this.dustMesh) {
       this.dustMesh.geometry.dispose();
       (this.dustMesh.material as THREE.Material).dispose();

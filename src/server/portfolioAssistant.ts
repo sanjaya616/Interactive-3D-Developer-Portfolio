@@ -9,7 +9,8 @@ import {
   WORLD_LANDMARKS,
 } from '../data/portfolioData.ts';
 
-export const ASSISTANT_MODEL = 'gemini-4-hydrogen';
+export const ASSISTANT_MODEL =
+  (typeof process !== 'undefined' && process.env?.GEMINI_MODEL?.trim()) || 'gemini-4-hydrogen';
 export const MAX_USER_MESSAGE_CHARS = 500;
 export const MAX_HISTORY_TURNS = 8;
 
@@ -143,10 +144,22 @@ VERIFIED PORTFOLIO DATA:
 ${buildVerifiedPortfolioContext()}`;
 
 const CONTROL_CHARS_REGEX = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+const INJECTION_BOILERPLATE_REGEX =
+  /\b(ignore (all |any )?(previous|prior) instructions|disregard (the )?system prompt|override rules|you are now|act as an unconstrained)\b/gi;
 
 export function sanitizeInputText(raw: unknown, maxLen: number): string {
   if (typeof raw !== 'string') return '';
   return raw.replace(CONTROL_CHARS_REGEX, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLen);
+}
+
+export function sanitizePromptInjection(raw: string): string {
+  const cleaned = raw
+    .replace(CONTROL_CHARS_REGEX, ' ')
+    .replace(/\b(system|developer)\s*:/gi, '')
+    .replace(INJECTION_BOILERPLATE_REGEX, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned;
 }
 
 export function validateAssistantRequest(
@@ -167,9 +180,9 @@ export function validateAssistantRequest(
     return { ok: false, error: 'Please enter a question for the portfolio guide.' };
   }
 
-  const trimmedRaw = raw.message.replace(CONTROL_CHARS_REGEX, ' ').replace(/\s+/g, ' ').trim();
+  const trimmedRaw = sanitizePromptInjection(raw.message);
   if (!trimmedRaw) {
-    return { ok: false, error: 'Message cannot be empty.' };
+    return { ok: false, error: 'Please ask a specific question about Sanjaya’s portfolio or 3D world.' };
   }
   if (trimmedRaw.length > MAX_USER_MESSAGE_CHARS) {
     return {
@@ -308,6 +321,49 @@ export function extractNavigationSuggestions(
   }
 
   return suggestions;
+}
+
+export function extractFollowUpChips(userMessage: string, assistantReply: string): string[] {
+  const haystack = `${userMessage} ${assistantReply}`.toLowerCase();
+  const chips: string[] = [];
+  const push = (q: string) => {
+    if (!chips.includes(q) && chips.length < 3) chips.push(q);
+  };
+
+  if (/\b(smartmove|oracle|lms|hotel|granbell|gallery|coconut|gate)\b/.test(haystack)) {
+    push('Which technologies did Sanjaya use across his projects?');
+    push('What features are implemented vs planned?');
+  }
+  if (/\b(skill|react|php|sql|kotlin|flutter|arduino|workshop)\b/.test(haystack)) {
+    push('Which projects use Kotlin, Flutter, or SQL?');
+    push('Where is The Workshop in the 3D world?');
+  }
+  if (/\b(who is|sanjaya|nibm|anuradhapura|freelance|journey)\b/.test(haystack)) {
+    push('What projects has he built since 2023?');
+    push('What services does Sanjaya offer?');
+  }
+  if (/\b(contact|email|phone|signal house|linkedin|github)\b/.test(haystack)) {
+    push('Where is Signal House in the 3D world?');
+    push('What services does he offer?');
+  }
+  if (/\b(paddock|race|mission|challenge|world|pavilion)\b/.test(haystack)) {
+    push('What driving challenges exist in the 3D world?');
+    push('How do I unlock custom garage rims and skins?');
+  }
+
+  // Fallback contextual defaults if fewer than 2 matched
+  const defaults = [
+    'What projects has he developed?',
+    'What technologies does he use?',
+    'How can I contact him?',
+  ];
+  for (const d of defaults) {
+    if (chips.length >= 2) break;
+    if (!haystack.includes(d.toLowerCase().slice(0, 14))) {
+      push(d);
+    }
+  }
+  return chips;
 }
 
 export function classifyGeminiApiError(err: unknown): {

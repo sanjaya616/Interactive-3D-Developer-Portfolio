@@ -17,9 +17,13 @@ import {
   computeWaterShoreDepth,
 } from './waterWaveMath';
 import {
+  BUILDING_FOOTPRINTS,
   DIRECTIONAL_SIGNS,
+  PADDOCK_CENTER,
   ROAD_SEGMENTS,
   WEST_RIDGE_TUNNEL_DEF,
+  WORLD_HALF_SPAN,
+  distanceToRoadEdge,
   pointToOrientedRectDistance,
 } from './worldLayout';
 import { FOREST_BROOK_BRIDGE } from './physicsMath';
@@ -167,17 +171,12 @@ const EXTRA_PROP_EXCLUSIONS: readonly [number, number, number][] = [
   ...DIRECTIONAL_SIGNS.map((sd): [number, number, number] => [sd.x, sd.z, sd.boundingRadius + 1.0]),
 ];
 
-const LANDMARK_BUILDING_FOOTPRINTS = WORLD_LANDMARKS.map((lm) => {
-  const len = Math.hypot(-lm.position.x, -lm.position.z) || 1;
-  const dx = -lm.position.x / len;
-  const dz = -lm.position.z / len;
-  return {
-    ax: lm.position.x,
-    az: lm.position.z,
-    bx: lm.position.x - dx * 5.8,
-    bz: lm.position.z - dz * 5.8,
-  };
-});
+const LANDMARK_BUILDING_FOOTPRINTS = BUILDING_FOOTPRINTS.map((bp) => ({
+  ax: bp.padX,
+  az: bp.padZ,
+  bx: bp.buildX,
+  bz: bp.buildZ,
+}));
 
 export function distToSegment(
   px: number,
@@ -212,14 +211,16 @@ export function isClearForVegetation(
   options: ClearCheckOptions = {},
 ): boolean {
   const distOrigin = Math.hypot(x, z);
-  if (distOrigin > 158 || distOrigin < 15.0 + extraRadius) return false;
+  if (Math.abs(x) > WORLD_HALF_SPAN - 2 || Math.abs(z) > WORLD_HALF_SPAN - 2 || distOrigin < 15.0 + extraRadius) {
+    return false;
+  }
 
   // Inner Ring Road (r = 34)
   if (Math.abs(distOrigin - 34) < 3.15 + extraRadius) return false;
 
-  // Paddock Racing Circuit & Start/Finish oval around (-66, 18)
-  const distPaddock = Math.hypot(x + 66, z - 18);
-  if (Math.abs(distPaddock - 18) < 3.35 + extraRadius) return false;
+  // Paddock Racing Circuit & Start/Finish oval around PADDOCK_CENTER
+  const distPaddock = Math.hypot(x - PADDOCK_CENTER.x, z - PADDOCK_CENTER.z);
+  if (Math.abs(distPaddock - PADDOCK_CENTER.radius) < 3.35 + extraRadius) return false;
   if (options.isTreeOrShrub && distPaddock < 22.6 + extraRadius) return false;
 
   // Emerald Lagoon Bridge + North/South approach wingwalls + South Cove Footbridge + Forest Brook Bridge
@@ -439,7 +440,8 @@ export function generateWorldVegetationLayout(): WorldVegetationLayout {
     else if (species === 'palm') palms.push(item);
     else broadleafs.push(item);
 
-    if (Math.hypot(x, z) < 92) {
+    const roadEdge = distanceToRoadEdge(x, z);
+    if (Math.hypot(x, z) < 122 && roadEdge.clearanceMeters >= 3.25) {
       staticColliders.push({
         x,
         y: gy + 1.3,

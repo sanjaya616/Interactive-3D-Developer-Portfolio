@@ -2,7 +2,9 @@ export type GamePhase = 'loading' | 'title' | 'playing' | 'paused' | 'photomode'
 
 export type QualityLevel = 'low' | 'medium' | 'high';
 
-export type WeatherMode = 'sunny' | 'sunset' | 'night' | 'rain' | 'fog';
+export type WeatherMode = 'sunny' | 'sunset' | 'night' | 'rain' | 'fog' | 'storm' | 'clear';
+
+export type DrivingAssistLevel = 'easy' | 'normal' | 'pro';
 
 export type WindMode = 'auto' | 'calm' | 'normal' | 'strong';
 
@@ -89,6 +91,10 @@ export interface PortfolioProject {
   implementedFeatures: string[];
   plannedFeatures: string[];
   contribution: string;
+  role?: string;
+  problemSolved?: string;
+  architectureSummary?: string;
+  outcomeNote?: string;
   previewKind: ProjectPreviewKind;
   accentColor: string;
   links: {
@@ -202,6 +208,9 @@ export interface GameSettings {
   ghostEnabled: boolean;
   headlightsOn: boolean;
   reducedMotion: boolean;
+  assistLevel?: DrivingAssistLevel;
+  dayNightCycle?: boolean;
+  audioCaptions?: boolean;
 }
 
 export interface AuthUserSummary {
@@ -350,6 +359,17 @@ export interface GameHudSnapshot {
   totalFragments: number;
   secretsFound: number;
   totalSecrets: number;
+  gear?: number;
+  rpm?: number;
+  boundaryDistMeters?: number;
+  driftHint?: string;
+  missionDistanceMeters?: number;
+  missionBearingDeg?: number;
+  timeTrialDeltaSec?: number | null;
+  timeTrialMedal?: 'Bronze' | 'Silver' | 'Gold' | null;
+  companionDroneText?: string | null;
+  freedToast?: string | null;
+  audioCaptionText?: string | null;
   activeChallenge: ActiveChallengeHud;
   race: RaceHudState;
 }

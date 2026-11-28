@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { Compass } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Compass, LocateFixed, Maximize2 } from 'lucide-react';
 import {
   SECRET_LOCATIONS,
   STUNT_ARENA_RAMPS,
@@ -51,6 +51,9 @@ export const MinimapHUD: React.FC<MinimapHUDProps> = ({
   objectiveId,
   onOpenMap,
 }) => {
+  const [headingUp, setHeadingUp] = useState(false);
+  const [followZoom, setFollowZoom] = useState(false);
+
   const arrowDeg = (-headingRad * 180) / Math.PI;
   const tunnelDeg = (-WEST_RIDGE_TUNNEL_DEF.yaw * 180) / Math.PI;
   const district = getDistrictForPoint(playerX, playerZ);
@@ -70,30 +73,63 @@ export const MinimapHUD: React.FC<MinimapHUDProps> = ({
   const vEndX = Math.cos(RING_LAGOON_VIADUCT.angEnd) * RING_LAGOON_VIADUCT.radius;
   const vEndZ = Math.sin(RING_LAGOON_VIADUCT.angEnd) * RING_LAGOON_VIADUCT.radius;
 
-  return (
-    <button
-      type="button"
-      tabIndex={-1}
-      onClick={(e) => {
-        e.currentTarget.blur();
-        onOpenMap();
-      }}
-      aria-label="Open expanded world map [M]"
-      title="Click to expand World Map (M)"
-      className="pointer-events-auto group hidden md:flex flex-col ui-hud-panel rounded-2xl p-2 hover:bg-[#F5E9D4] active:translate-y-0.5 transition-colors cursor-pointer"
-    >
-      <div className="relative w-44 h-44 lg:w-48 lg:h-48 rounded-xl overflow-hidden border border-[#CBB18D] bg-[#EED6AF]">
-        <span
-          aria-hidden="true"
-          className="absolute top-1 left-1/2 -translate-x-1/2 z-10 px-1.5 py-0.2 rounded bg-[#26211E] text-[#FFF9F0] text-[8px] font-extrabold leading-tight"
-        >
-          N
-        </span>
+  const zoomHalf = 80;
+  const viewMinX = followZoom
+    ? Math.max(-WORLD_MAP_HALF_SPAN, Math.min(WORLD_MAP_HALF_SPAN - zoomHalf * 2, playerX - zoomHalf))
+    : -WORLD_MAP_HALF_SPAN;
+  const viewMinZ = followZoom
+    ? Math.max(-WORLD_MAP_HALF_SPAN, Math.min(WORLD_MAP_HALF_SPAN - zoomHalf * 2, playerZ - zoomHalf))
+    : -WORLD_MAP_HALF_SPAN;
+  const viewSpan = followZoom ? zoomHalf * 2 : WORLD_MAP_HALF_SPAN * 2;
+  const viewCenterX = viewMinX + viewSpan * 0.5;
+  const viewCenterZ = viewMinZ + viewSpan * 0.5;
 
-        <svg
-          viewBox={`${-WORLD_MAP_HALF_SPAN} ${-WORLD_MAP_HALF_SPAN} ${WORLD_MAP_HALF_SPAN * 2} ${WORLD_MAP_HALF_SPAN * 2}`}
-          className="w-full h-full block"
+  return (
+    <div className="pointer-events-auto hidden md:flex flex-col ui-hud-panel rounded-2xl p-2">
+      <div className="relative w-44 h-44 lg:w-48 lg:h-48 rounded-xl overflow-hidden border border-[#CBB18D] bg-[#EED6AF]">
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={(e) => {
+            e.currentTarget.blur();
+            setHeadingUp((h) => !h);
+          }}
+          title={headingUp ? 'Switch to North-Up' : 'Switch to Heading-Up'}
+          className="absolute top-1 left-1.5 z-10 px-1.5 py-0.5 rounded bg-[#26211E] text-[#FFF9F0] text-[8px] font-extrabold leading-tight hover:bg-[#EC6D2C] cursor-pointer"
         >
+          {headingUp ? 'HDG' : 'N↑'}
+        </button>
+
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={(e) => {
+            e.currentTarget.blur();
+            setFollowZoom((z) => !z);
+          }}
+          aria-label={followZoom ? 'Show full island minimap' : 'Zoom minimap onto vehicle'}
+          title={followZoom ? 'Full Island View' : 'Follow Vehicle Zoom'}
+          className="absolute top-1 right-1.5 z-10 p-1 rounded bg-[#26211E]/90 text-[#FFF9F0] hover:bg-[#21968B] cursor-pointer"
+        >
+          {followZoom ? <Maximize2 className="w-2.5 h-2.5" /> : <LocateFixed className="w-2.5 h-2.5" />}
+        </button>
+
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={(e) => {
+            e.currentTarget.blur();
+            onOpenMap();
+          }}
+          aria-label="Open expanded world map [M]"
+          title="Click to expand World Map (M)"
+          className="w-full h-full block cursor-pointer hover:brightness-[0.98] transition-all"
+        >
+          <svg
+            viewBox={`${viewMinX} ${viewMinZ} ${viewSpan} ${viewSpan}`}
+            className="w-full h-full block"
+          >
+            <g transform={headingUp ? `rotate(${-arrowDeg}, ${viewCenterX}, ${viewCenterZ})` : undefined}>
           {/* Lookout Hill, Forest Canopy & Water Features */}
           <rect x="-148" y="-128" width="90" height="78" rx="14" fill="#6A9A68" opacity="0.28" />
           <path
@@ -368,16 +404,26 @@ export const MinimapHUD: React.FC<MinimapHUDProps> = ({
               strokeLinejoin="round"
             />
           </g>
-        </svg>
+            </g>
+          </svg>
+        </button>
       </div>
 
-      <div className="mt-1.5 flex items-center justify-between gap-1 px-1 text-[10px] font-extrabold text-[#26211E]">
+      <button
+        type="button"
+        tabIndex={-1}
+        onClick={(e) => {
+          e.currentTarget.blur();
+          onOpenMap();
+        }}
+        className="mt-1.5 flex items-center justify-between gap-1 px-1 text-[10px] font-extrabold text-[#26211E] cursor-pointer hover:text-[#EC6D2C]"
+      >
         <span className="inline-flex items-center gap-1 min-w-0 truncate">
           <Compass className="w-3.5 h-3.5 text-[#EC6D2C] shrink-0" />
           <span className="truncate">{district.shortLabel}</span>
         </span>
         <span className="text-[#61564E] shrink-0">[M]</span>
-      </div>
-    </button>
+      </button>
+    </div>
   );
 };
