@@ -979,8 +979,8 @@ export class SceneManager {
       }
     }
 
-    let missionDistanceMeters: number | null = null;
-    let missionBearingDeg: number | null = null;
+    let missionDistanceMeters: number | undefined;
+    let missionBearingDeg: number | undefined;
     const targetPt =
       this.challengeMgr.getActiveTargetPoint() ??
       this.activeWaypointOverride ??
@@ -1555,19 +1555,19 @@ export class SceneManager {
       if (this.worldEnv) {
         const aiOut = this.worldEnv.updateAiTraffic({
           dt,
-          elapsed: this.elapsed,
+          motionTime: this.elapsed,
           playerX: simOut.position.x,
           playerY: simOut.position.y,
           playerZ: simOut.position.z,
           playerYaw: this.physics.getYaw(),
           playerSpeedMs: this.physics.forwardSpeed,
-          playerHeadingDeg: (this.physics.getYaw() * 180) / Math.PI,
           raceActive:
             this.challengeMgr.getRacePhase() === 'countdown' ||
             this.challengeMgr.getRacePhase() === 'racing',
-          activeTarget: aiTarget,
+          activeTargetX: aiTarget ? aiTarget.x : null,
+          activeTargetZ: aiTarget ? aiTarget.z : null,
+          activeTargetLabel: aiTarget ? aiTarget.label : null,
           reducedMotion: this.settings.reducedMotion,
-          quality: this.settings.quality,
         });
         this.companionDroneText = aiOut.companionDroneText;
 

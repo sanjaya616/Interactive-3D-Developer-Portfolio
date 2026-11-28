@@ -29,6 +29,7 @@ import {
   stepPlanarDriving,
 } from './physicsMath';
 import { computeExplorerRank, computeRaceMedal } from './progression';
+import { PADDOCK_CENTER } from './worldConstants';
 import {
   AMPHIBIOUS_LAGOON_BOUNDS,
   EMERALD_LAGOON_BOUNDS,
@@ -412,7 +413,7 @@ test('ChallengeManager enforces SQL anti-skip order, RFID 3-step, Delivery 3-sto
   cm.startRace(true);
   assert.equal(cm.getRacePhase(), 'countdown');
   assert.equal(cm.isThrottleLocked(), true);
-  cm.tick(-66, 18, 3.1);
+  cm.tick(PADDOCK_CENTER.x, PADDOCK_CENTER.z, 3.1);
   assert.equal(cm.getRacePhase(), 'racing');
   assert.equal(cm.isThrottleLocked(), false);
 
@@ -421,7 +422,7 @@ test('ChallengeManager enforces SQL anti-skip order, RFID 3-step, Delivery 3-sto
     cm.tick(cp.x, cp.z, 1.5);
   }
   assert.equal(cm.getRaceHudState(true).checkpointIndex, 4);
-  const raceEndFx = cm.tick(-66, 18, 0.2);
+  const raceEndFx = cm.tick(PADDOCK_CENTER.x, PADDOCK_CENTER.z, 0.2);
   assert.equal(cm.getRacePhase(), 'finished');
   assert.ok(raceEndFx.raceFinished && raceEndFx.raceFinished.lapSeconds > 5);
 

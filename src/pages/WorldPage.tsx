@@ -946,7 +946,7 @@ export const WorldPage: React.FC = () => {
 
       {/* DEV-Only Collapsible Performance Monitor & F3 Collision Debug (excluded in production builds) */}
       {import.meta.env.DEV && phase === 'playing' && !panelOpen && (
-        <div className="fixed top-[4.5rem] left-3 sm:left-5 z-30 pointer-events-auto flex flex-col items-start gap-1.5">
+        <div className="hidden sm:flex fixed top-[4.5rem] left-3 sm:left-5 z-30 pointer-events-auto flex-col items-start gap-1.5">
           {!devPerfOpen ? (
             <div className="flex items-center gap-1.5">
               <button

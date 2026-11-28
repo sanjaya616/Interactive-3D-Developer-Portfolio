@@ -96,6 +96,19 @@ const WEATHER_PALETTES: Record<
     envIntensity: number;
   }
 > = {
+  clear: {
+    baseHex: '#189A94',
+    shallowHex: '#2ACEBE',
+    deepHex: '#0C6A78',
+    foamHex: '#FFFBF2',
+    highlightHex: '#FFF4B8',
+    deepOpacity: 0.94,
+    rainStrength: 0.0,
+    highlightBoost: 0.25,
+    fogDamp: 0.0,
+    baseRoughness: 0.14,
+    envIntensity: 0.48,
+  },
   sunny: {
     baseHex: '#17948D',
     shallowHex: '#27C2B4',
@@ -147,6 +160,19 @@ const WEATHER_PALETTES: Record<
     fogDamp: 0.18,
     baseRoughness: 0.22,
     envIntensity: 0.36,
+  },
+  storm: {
+    baseHex: '#154B54',
+    shallowHex: '#226168',
+    deepHex: '#0B2836',
+    foamHex: '#C9DAE4',
+    highlightHex: '#A7C3D6',
+    deepOpacity: 0.96,
+    rainStrength: 1.0,
+    highlightBoost: 0.14,
+    fogDamp: 0.28,
+    baseRoughness: 0.26,
+    envIntensity: 0.3,
   },
   fog: {
     baseHex: '#2A7E78',

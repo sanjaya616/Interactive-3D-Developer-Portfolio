@@ -1,18 +1,18 @@
-import { WORLD_COLLECTIBLES, WORLD_LANDMARKS } from '../data/portfolioData.ts';
+import { WORLD_COLLECTIBLES, WORLD_LANDMARKS } from '../src/data/portfolioData.ts';
 import {
   computeBridgeSurfaceY,
   computeGroundHeight,
   getBridgeColliderSegments,
-} from '../game/physicsMath.ts';
-import { generateWorldVegetationLayout } from '../game/vegetationPlacement.ts';
-import { computeWaterShoreDepth } from '../game/waterWaveMath.ts';
+} from '../src/game/physicsMath.ts';
+import { generateWorldVegetationLayout } from '../src/game/vegetationPlacement.ts';
+import { computeWaterShoreDepth } from '../src/game/waterWaveMath.ts';
 import {
   WORLD_PLAYABLE_HALF_SPAN,
   computeRoadNetworkRoute,
   distanceToRoadEdge,
   isInsideTunnelZone,
   validateWorldLayout,
-} from '../game/worldLayout.ts';
+} from '../src/game/worldLayout.ts';
 
 const RELOCATED_CRATES = [
   { x: -16.2, z: -4.2 },
@@ -26,7 +26,9 @@ const RELOCATED_CRATES = [
 ];
 
 const report = validateWorldLayout(RELOCATED_CRATES);
-const errors: string[] = [...report.issues];
+const errors: string[] = report.issues
+  .filter((issue) => issue.severity === 'error')
+  .map((issue) => `${issue.category}: ${issue.message}`);
 
 const veg = generateWorldVegetationLayout();
 for (const col of veg.staticColliders) {

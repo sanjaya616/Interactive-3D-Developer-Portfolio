@@ -23,6 +23,8 @@ export interface VehicleRig {
     dt: number,
     wheelCompressions?: [number, number, number, number],
     isDrifting?: boolean,
+    isBraking?: boolean,
+    throttleInput?: number,
   ) => void;
   dispose: () => void;
 }

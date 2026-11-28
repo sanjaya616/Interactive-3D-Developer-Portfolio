@@ -679,8 +679,8 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             </div>
           )}
 
-          <div className="ui-hud-panel rounded-2xl px-3.5 py-2.5 sm:px-4 sm:py-3 [@media(max-height:480px)]:py-2 min-w-[152px] sm:min-w-[208px]">
-            <div className="flex items-center justify-between gap-3">
+          <div className="ui-hud-panel rounded-2xl px-2.5 py-2 sm:px-4 sm:py-3 [@media(max-height:480px)]:py-2 min-w-[136px] sm:min-w-[208px]">
+            <div className="flex items-center justify-between gap-2 sm:gap-3">
               <div>
                 <div className="flex items-center gap-1.5 mb-0.5">
                   <span
@@ -689,20 +689,20 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                     aria-hidden="true"
                   />
                   <span
-                    className="text-[10px] font-extrabold tracking-wider leading-none"
+                    className="text-[9px] sm:text-[10px] font-extrabold tracking-wider leading-none"
                     style={{ color: drivingState.color }}
                   >
                     {drivingState.text}
                   </span>
                 </div>
-                <div className="flex items-baseline gap-1.5">
+                <div className="flex items-baseline gap-1 sm:gap-1.5">
                   <span
                     data-testid="hud-speed"
-                    className="text-2xl sm:text-3xl font-extrabold tabular-nums text-[#26211E] leading-none"
+                    className="text-xl sm:text-3xl font-extrabold tabular-nums text-[#26211E] leading-none"
                   >
                     {hud.speedKmh}
                   </span>
-                  <span className="text-[10px] sm:text-[11px] font-extrabold tracking-wider text-[#61564E]">
+                  <span className="text-[9px] sm:text-[11px] font-extrabold tracking-wider text-[#61564E]">
                     KM/H
                   </span>
                 </div>
@@ -767,17 +767,17 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               </svg>
             </div>
 
-            <div className="mt-1.5 flex items-center justify-between gap-2 text-[10px] font-extrabold text-[#61564E]">
-              <span className="inline-flex items-center gap-1.5">
+            <div className="mt-1 sm:mt-1.5 flex items-center justify-between gap-1.5 sm:gap-2 text-[9px] sm:text-[10px] font-extrabold text-[#61564E]">
+              <span className="inline-flex items-center gap-1 sm:gap-1.5">
                 <span
                   data-testid="hud-gear"
-                  className="px-1.5 py-0.5 rounded bg-[#26211E] text-[#FFE08A] tabular-nums leading-none"
+                  className="px-1 sm:px-1.5 py-0.5 rounded bg-[#26211E] text-[#FFE08A] tabular-nums leading-none"
                 >
                   G{gearLabel}
                 </span>
                 <span className="tabular-nums">{hud.rpm ?? 950} RPM</span>
               </span>
-              <div className="w-16 h-1.5 rounded-full bg-[#E6D3B5] overflow-hidden border border-[#CBB18D]">
+              <div className="hidden sm:block w-16 h-1.5 rounded-full bg-[#E6D3B5] overflow-hidden border border-[#CBB18D]">
                 <div
                   className="h-full transition-[width] duration-75"
                   style={{
@@ -788,11 +788,14 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               </div>
             </div>
 
-            <div className="mt-2 flex items-center justify-between text-[10px] font-extrabold text-[#61564E]">
-              <span>NITRO BOOST</span>
+            <div className="mt-1.5 sm:mt-2 flex items-center justify-between text-[9px] sm:text-[10px] font-extrabold text-[#61564E]">
+              <span>
+                <span className="sm:hidden">BOOST</span>
+                <span className="hidden sm:inline">NITRO BOOST</span>
+              </span>
               <span className="tabular-nums text-[#26211E]">{hud.boostCharge}%</span>
             </div>
-            <div className="mt-1 ui-progress-track h-2">
+            <div className="mt-0.5 sm:mt-1 ui-progress-track h-1.5 sm:h-2">
               <div
                 className="ui-progress-fill"
                 style={{
@@ -802,7 +805,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               />
             </div>
 
-            <div className="mt-2 flex items-center justify-between gap-2.5 text-[10px] font-extrabold text-[#61564E]">
+            <div className="mt-1.5 sm:mt-2 flex items-center justify-between gap-2 text-[9px] sm:text-[10px] font-extrabold text-[#61564E]">
               <span className="whitespace-nowrap">
                 <span className="sm:hidden">2X JUMP</span>
                 <span className="hidden sm:inline">DOUBLE JUMP</span>
@@ -811,7 +814,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 {[0, 1].map((idx) => (
                   <span
                     key={idx}
-                    className={`w-3.5 h-1.5 rounded-xs border border-[#26211E] ${
+                    className={`w-3 sm:w-3.5 h-1.5 rounded-xs border border-[#26211E] ${
                       idx < hud.jumpsRemaining ? 'bg-[#EC6D2C]' : 'bg-[#E6D3B5]'
                     }`}
                   />
